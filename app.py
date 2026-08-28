@@ -8,16 +8,20 @@ from datetime import datetime
 st.set_page_config(page_title="EV Football Analytics - Pro", layout="wide", page_icon="📈")
 
 # ==========================================
-# 1. ADVANCED QUANT & ENSEMBLE ENGINE (Tuned for Short Odds)
+# 1. ADVANCED QUANT & ENSEMBLE ENGINE
 # ==========================================
 class FootballEloCalculator:
     def __init__(self, home_advantage: float = 65.0):
         self.home_advantage = home_advantage
 
-    def get_win_probability(self, elo_home: float, elo_away: float, is_home: bool = True) -> float:
-        ha = self.home_advantage if is_home else 0.0
-        rating_diff = (elo_home + ha) - elo_away
-        return 1.0 / (1.0 + 10.0 ** (-rating_diff / 400.0))
+    def get_win_probabilities(self, elo_home: float, elo_away: float) -> tuple:
+        rating_diff = (elo_home + self.home_advantage) - elo_away
+        prob_h = 1.0 / (1.0 + 10.0 ** (-rating_diff / 400.0))
+        # Simple heuristic split for draw vs away based on Elo symmetry
+        prob_a = 1.0 / (1.0 + 10.0 ** ((rating_diff) / 400.0))
+        prob_d = max(0.1, 1.0 - prob_h - prob_a)
+        total = prob_h + prob_d + prob_a
+        return prob_h/total, prob_d/total, prob_a/total
 
 class PoissonGoalModel:
     def predict_xg_probs(self, home_form_attack: float, away_form_defense: float):
@@ -34,8 +38,7 @@ class EnsemblePredictionEngine:
         self.elo_calc = FootballEloCalculator()
         self.poisson_model = PoissonGoalModel()
 
-    def calculate_consensus_probability(self, home_team: str, away_team: str):
-        # Expanded club Elo tier database for accurate mismatch detection on favorites
+    def calculate_consensus_probabilities(self, home_team: str, away_team: str):
         base_elos = {
             "Arsenal": 1890, "Man City": 1950, "Liverpool": 1910, "Chelsea": 1780,
             "Real Madrid": 1960, "Barcelona": 1920, "Bayern Munich": 1940, "Inter Milan": 1860,
@@ -46,17 +49,20 @@ class EnsemblePredictionEngine:
         elo_h = base_elos.get(home_team, 1680)
         elo_a = base_elos.get(away_team, 1680)
         
-        elo_prob_h = self.elo_calc.get_win_probability(elo_h, elo_a, is_home=True)
+        elo_h_p, elo_d_p, elo_a_p = self.elo_calc.get_win_probabilities(elo_h, elo_a)
         
         form_attack_h = 1.3 if elo_h > 1800 else 1.0
         form_defense_a = 0.8 if elo_a > 1800 else 1.1
-        poisson_h, poisson_d, poisson_a = self.poisson_model.predict_xg_probs(form_attack_h, form_defense_a)
+        pois_h_p, pois_d_p, pois_a_p = self.poisson_model.predict_xg_probs(form_attack_h, form_defense_a)
         
-        # Blending model weights to favor strong statistical conviction on clear favorites
-        consensus_home = (0.55 * elo_prob_h) + (0.45 * poisson_h)
-        agreement_score = 1.0 - abs(elo_prob_h - poisson_h)
+        # Blend probabilities safely (Home, Draw, Away)
+        final_h = (0.55 * elo_h_p) + (0.45 * pois_h_p)
+        final_d = (0.50 * elo_d_p) + (0.50 * pois_d_p)
+        final_a = (0.55 * elo_a_p) + (0.45 * pois_a_p)
         
-        return float(consensus_home), float(agreement_score)
+        # Normalize to ensure sum is 1.0
+        total = final_h + final_d + final_a
+        return final_h/total, final_d/total, final_a/total
 
 class QuantEngine:
     @staticmethod
@@ -73,10 +79,10 @@ class QuantEngine:
 
 class AIInsightEngine:
     @staticmethod
-    def generate(selection, model_prob, odds, edge, agreement):
+    def generate(selection, model_prob, odds, edge):
         implied = 1 / odds
         odds_type = "Short Odds (Safe Favorite)" if odds < 2.0 else "Value / Underdog"
-        return (f"[{odds_type}] Model probability is {model_prob*100:.1f}% (Agreement: {agreement*100:.0f}%), "
+        return (f"[{odds_type}] Model probability is {model_prob*100:.1f}%, "
                 f"vs SkyBet implied {implied*100:.1f}%. Edge: +{edge*100:.1f}%. "
                 f"Model successfully identified mispricing against bookmaker overround.")
 
@@ -108,7 +114,6 @@ with st.expander("📖 Glossary & Methodology: How the Pro Model Works"):
     * **Edge:** The mathematical difference between our ensemble model's true win probability and SkyBet's implied probability.
     * **EV (Expected Value):** The percentage return expected per unit staked over the long run.
     * **Rec. Stake (Kelly):** Fractional Kelly criterion sizing to safeguard bankroll while maximizing growth.
-    * **Short-Odds Handling:** Special tuning allows the engine to bypass bookmaker overround on heavy favorites when model conviction is exceptionally high.
     """)
 
 st.sidebar.header("⚙️ Settings")
@@ -166,26 +171,27 @@ with tab1:
                                 if h2h_market:
                                     outcomes = h2h_market.get("outcomes", [])
                                     
-                                    # Evaluate both Home and Away selections to capture short-odds favorites on either side
+                                    # Get 3-way consensus probabilities (Home, Draw, Away)
+                                    h_prob, d_prob, a_prob = ensemble_engine.calculate_consensus_probabilities(home_team, away_team)
+                                    
                                     for outcome in outcomes:
-                                        selection_team = outcome["name"]
+                                        selection_name = outcome["name"]
                                         odds = outcome["price"]
                                         
-                                        # Determine if selection is home or away
-                                        is_home = (selection_team == home_team)
-                                        
-                                        # Calculate model probability for the respective side
-                                        h_prob, _, a_prob = ensemble_engine.calculate_consensus_probability(home_team, away_team)
-                                        true_prob = h_prob if is_home else a_prob
-                                        agreement = 0.90 # high confidence baseline for major selections
-                                        
+                                        # Match outcome name to respective model probability
+                                        if selection_name == home_team:
+                                            true_prob = h_prob
+                                        elif selection_name == away_team:
+                                            true_prob = a_prob
+                                        else:
+                                            true_prob = d_prob # Draw
+                                            
                                         edge = true_prob - (1 / odds)
                                         
-                                        # Capture positive edge across all price ranges (including < 2.0 odds)
                                         if edge > 0.00: 
                                             ev = QuantEngine.calculate_ev(true_prob, odds)
                                             kelly = QuantEngine.calculate_kelly(true_prob, odds)
-                                            insight = AIInsightEngine.generate(selection_team, true_prob, odds, edge, agreement)
+                                            insight = AIInsightEngine.generate(selection_name, true_prob, odds, edge)
                                             
                                             bets.append({
                                                 "Kickoff": kickoff,
@@ -193,10 +199,9 @@ with tab1:
                                                 "Fixture": f"{home_team} vs {away_team}", 
                                                 "Market": "Match Winner", 
                                                 "Bookmaker": "SkyBet",
-                                                "Selection": selection_team,
+                                                "Selection": selection_name,
                                                 "Odds": odds, 
                                                 "Model %": f"{true_prob*100:.1f}%", 
-                                                "Model Agreement": f"{agreement*100:.0f}%",
                                                 "Edge": f"+{edge*100:.1f}%", 
                                                 "EV": f"+{ev*100:.1f}%", 
                                                 "Rec. Stake": f"{kelly*100:.2f}%",
@@ -208,11 +213,10 @@ with tab1:
                     except Exception as e:
                         st.error(f"Error scanning {league_name}: {e}")
                 
-                status.update(label=f"✅ Scan Complete! Found {len(bets)} opportunities (including short odds).", state="complete", expanded=False)
+                status.update(label=f"✅ Scan Complete! Found {len(bets)} opportunities.", state="complete", expanded=False)
                 
                 if bets:
                     df_bets = pd.DataFrame(bets)
-                    # Sort prioritizing safety score combined with EV
                     df_bets['Safety_Score'] = df_bets['_raw_prob'] * df_bets['_raw_ev']
                     df_bets = df_bets.sort_values(by='Safety_Score', ascending=False)
                     df_bets = df_bets.drop(columns=['_raw_prob', '_raw_ev', 'Safety_Score'])
