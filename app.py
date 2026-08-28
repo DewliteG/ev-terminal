@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -314,5 +313,3 @@ with tab2:
                         st.dataframe(leg_df, use_container_width=True, hide_index=True)
         else:
             st.warning("Not enough qualifying selections found to construct multi-leg accumulators.")
-
-```
