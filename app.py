@@ -69,52 +69,68 @@ st.markdown("Identify mathematically profitable betting opportunities strictly o
 # Sidebar API Configuration
 st.sidebar.header("⚙️ Settings")
 api_key = st.sidebar.text_input("Enter 'The Odds API' Key", type="password")
-selected_league_name = st.sidebar.selectbox("Select League to Scan", list(LEAGUE_KEYS.keys()))
-selected_league_key = LEAGUE_KEYS[selected_league_name]
+st.sidebar.markdown("Get a free key at [the-odds-api.com](https://the-odds-api.com/).")
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("Get a free key at [the-odds-api.com](https://the-odds-api.com/). The free tier grants 500 requests per month.")
+st.sidebar.subheader("Select Leagues to Scan")
+
+# Generate dynamic checkboxes for every league
+selected_leagues = []
+for league_name in LEAGUE_KEYS.keys():
+    # Default to having Premier League and Champions League checked
+    is_default = league_name in ["Premier League", "Champions League"]
+    if st.sidebar.checkbox(league_name, value=is_default):
+        selected_leagues.append(league_name)
 
 tab1, tab2 = st.tabs(["🎯 Live SkyBet Value Bets", "🔗 Accumulator Engine"])
 
 with tab1:
-    st.subheader(f"Scanning Real Upcoming Matches: {selected_league_name}")
+    st.subheader("Scanning Real Upcoming Matches")
     
-    if st.button(f"🔄 Scan Live {selected_league_name} Markets", type="primary"):
+    if st.button("🔄 Scan Selected SkyBet Markets", type="primary"):
         if not api_key:
             st.error("Please enter your API Key in the sidebar to fetch real fixtures.")
+        elif not selected_leagues:
+            st.warning("Please check at least one league in the sidebar to scan.")
         else:
-            with st.status(f"Fetching live {selected_league_name} data...", expanded=True) as status:
-                st.write(f"📡 Contacting The Odds API for {selected_league_name} matches...")
+            with st.status("Fetching live data from selected leagues...", expanded=True) as status:
+                poisson_model = PoissonGoalModel()
+                bets = []
                 
-                # Using the specific league key selected by the user
-                url = f"https://api.the-odds-api.com/v4/sports/{selected_league_key}/odds/?apiKey={api_key}&regions=uk&bookmakers=skybet&markets=h2h"
-                
-                try:
-                    response = requests.get(url)
-                    data = response.json()
+                # Iterate through every league the user checked
+                for league_name in selected_leagues:
+                    league_key = LEAGUE_KEYS[league_name]
+                    st.write(f"📡 Scanning {league_name}...")
                     
-                    if response.status_code != 200:
-                        st.error(f"API Error: {data.get('message', 'Unknown error')}")
-                    elif not data:
-                        st.warning(f"No upcoming matches found for {selected_league_name} on SkyBet right now.")
-                        status.update(label="Scan finished with no matches.", state="error")
-                    else:
-                        st.write(f"✅ Found {len(data)} real upcoming {selected_league_name} matches.")
-                        st.write("🧠 Running Quantitative EV Engine against live odds...")
+                    url = f"https://api.the-odds-api.com/v4/sports/{league_key}/odds/?apiKey={api_key}&regions=uk&bookmakers=skybet&markets=h2h"
+                    
+                    try:
+                        response = requests.get(url)
+                        data = response.json()
                         
-                        poisson_model = PoissonGoalModel()
-                        bets = []
+                        # Handle API Quota/Auth errors to prevent crashing the whole loop
+                        if response.status_code == 401:
+                            st.error("Invalid API Key.")
+                            break
+                        elif response.status_code == 429:
+                            st.error("API Quota Reached. Processing what we have so far...")
+                            break
+                        elif response.status_code != 200:
+                            st.warning(f"Skipping {league_name}: {data.get('message', 'Unknown API Error')}")
+                            continue
+                            
+                        if not data:
+                            st.write(f"⚠️ No upcoming SkyBet odds found for {league_name}.")
+                            continue
                         
+                        # Process matches for this league
                         for match in data:
                             home_team = match.get("home_team")
                             away_team = match.get("away_team")
                             
-                            # Format Kickoff Time
                             kickoff_raw = match.get("commence_time")
                             kickoff = datetime.strptime(kickoff_raw, "%Y-%m-%dT%H:%M:%SZ").strftime("%b %d, %H:%M")
                             
-                            # Extract SkyBet Odds
                             bookmakers = match.get("bookmakers", [])
                             skybet_data = next((b for b in bookmakers if b["key"] == "skybet"), None)
                             
@@ -132,7 +148,7 @@ with tab1:
                                         
                                         edge = true_prob_h - (1 / odds)
                                         
-                                        # Display bets with any edge to ensure data appears, filter higher for stricter EV
+                                        # Only display bets with a mathematical edge > 0%
                                         if edge > 0.00: 
                                             ev = QuantEngine.calculate_ev(true_prob_h, odds)
                                             kelly = QuantEngine.calculate_kelly(true_prob_h, odds)
@@ -140,7 +156,7 @@ with tab1:
                                             
                                             bets.append({
                                                 "Kickoff": kickoff,
-                                                "League": selected_league_name, 
+                                                "League": league_name, 
                                                 "Fixture": f"{home_team} vs {away_team}", 
                                                 "Market": "Match Winner", 
                                                 "Bookmaker": "SkyBet",
@@ -152,19 +168,20 @@ with tab1:
                                                 "Rec. Stake": f"{kelly*100:.2f}%",
                                                 "AI Rationale": insight
                                             })
-                        
-                        status.update(label=f"✅ Analysis Complete! Found {len(bets)} +EV opportunities in {selected_league_name}.", state="complete", expanded=False)
-                        
-                        if bets:
-                            df_bets = pd.DataFrame(bets)
-                            df_bets['Sort_EV'] = df_bets['EV'].str.replace('+', '').str.replace('%', '').astype(float)
-                            df_bets = df_bets.sort_values(by='Sort_EV', ascending=False).drop('Sort_EV', axis=1)
-                            st.dataframe(df_bets, use_container_width=True, hide_index=True)
-                        else:
-                            st.info("No +EV opportunities found on SkyBet right now for this league. Try scanning another league!")
-                            
-                except Exception as e:
-                    st.error(f"Failed to connect to API: {e}")
+                                            
+                    except Exception as e:
+                        st.error(f"Failed to scan {league_name}: {e}")
+                
+                # Finalizing UI updates
+                status.update(label=f"✅ Multi-League Scan Complete! Found {len(bets)} total +EV opportunities.", state="complete", expanded=False)
+                
+                if bets:
+                    df_bets = pd.DataFrame(bets)
+                    df_bets['Sort_EV'] = df_bets['EV'].str.replace('+', '').str.replace('%', '').astype(float)
+                    df_bets = df_bets.sort_values(by='Sort_EV', ascending=False).drop('Sort_EV', axis=1)
+                    st.dataframe(df_bets, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No +EV opportunities found across the selected leagues on SkyBet right now. Check back closer to kickoff!")
 
 with tab2:
     st.subheader("Accumulator (Parlay) EV Calculator")
