@@ -41,7 +41,7 @@ class AIInsightEngine:
         implied = 1 / odds
         return (f"Model probability is {model_prob*100:.1f}%, vs SkyBet's implied {implied*100:.1f}%. "
                 f"Creates a +{edge*100:.1f}% edge. "
-                f"Value driven by a superior baseline Poisson distribution.")
+                f"High-safety value profile identified via Poisson distribution.")
 
 # ==========================================
 # 2. THE ODDS API LEAGUE KEYS
@@ -66,6 +66,14 @@ LEAGUE_KEYS = {
 st.title("📈 EV Football Analytics Terminal (SkyBet)")
 st.markdown("Identify mathematically profitable betting opportunities strictly on **SkyBet** using real live fixtures.")
 
+# --- GLOSSARY EXPANDER ---
+with st.expander("📖 Glossary: Understanding Your Metrics (Click to Expand)"):
+    st.markdown("""
+    * **Edge:** The mathematical difference between our model's true win probability and the bookmaker's implied probability ($\text{Model \%} - \text{Implied \%}$). A positive edge means the bookmaker has underpriced the selection.
+    * **EV (Expected Value):** The percentage return you expect to make on average per unit staked over the long run. An EV of +5% means for every £100 staked long-term, you expect an average profit of £5.
+    * **Rec. Stake (Kelly):** The optimal fraction of your total bankroll to wager using the Kelly Criterion (scaled down to Quarter-Kelly, i.e., $0.25$), designed to maximize long-term growth while heavily protecting against losing streaks.
+    """)
+
 # Sidebar API Configuration
 st.sidebar.header("⚙️ Settings")
 api_key = st.sidebar.text_input("Enter 'The Odds API' Key", type="password")
@@ -74,10 +82,8 @@ st.sidebar.markdown("Get a free key at [the-odds-api.com](https://the-odds-api.c
 st.sidebar.markdown("---")
 st.sidebar.subheader("Select Leagues to Scan")
 
-# Generate dynamic checkboxes for every league
 selected_leagues = []
 for league_name in LEAGUE_KEYS.keys():
-    # Default to having Premier League and Champions League checked
     is_default = league_name in ["Premier League", "Champions League"]
     if st.sidebar.checkbox(league_name, value=is_default):
         selected_leagues.append(league_name)
@@ -85,7 +91,7 @@ for league_name in LEAGUE_KEYS.keys():
 tab1, tab2 = st.tabs(["🎯 Live SkyBet Value Bets", "🔗 Accumulator Engine"])
 
 with tab1:
-    st.subheader("Scanning Real Upcoming Matches")
+    st.subheader("Scanning Real Upcoming Matches (Prioritizing High Safety & Margin)")
     
     if st.button("🔄 Scan Selected SkyBet Markets", type="primary"):
         if not api_key:
@@ -93,11 +99,10 @@ with tab1:
         elif not selected_leagues:
             st.warning("Please check at least one league in the sidebar to scan.")
         else:
-            with st.status("Fetching live data from selected leagues...", expanded=True) as status:
+            with st.status("Fetching live data and calculating margins...", expanded=True) as status:
                 poisson_model = PoissonGoalModel()
                 bets = []
                 
-                # Iterate through every league the user checked
                 for league_name in selected_leagues:
                     league_key = LEAGUE_KEYS[league_name]
                     st.write(f"📡 Scanning {league_name}...")
@@ -108,22 +113,18 @@ with tab1:
                         response = requests.get(url)
                         data = response.json()
                         
-                        # Handle API Quota/Auth errors to prevent crashing the whole loop
                         if response.status_code == 401:
                             st.error("Invalid API Key.")
                             break
                         elif response.status_code == 429:
-                            st.error("API Quota Reached. Processing what we have so far...")
+                            st.error("API Quota Reached. Processing available data...")
                             break
                         elif response.status_code != 200:
-                            st.warning(f"Skipping {league_name}: {data.get('message', 'Unknown API Error')}")
                             continue
                             
                         if not data:
-                            st.write(f"⚠️ No upcoming SkyBet odds found for {league_name}.")
                             continue
                         
-                        # Process matches for this league
                         for match in data:
                             home_team = match.get("home_team")
                             away_team = match.get("away_team")
@@ -148,7 +149,7 @@ with tab1:
                                         
                                         edge = true_prob_h - (1 / odds)
                                         
-                                        # Only display bets with a mathematical edge > 0%
+                                        # Capture all odds (including short odds < 2.0) as long as there is positive edge
                                         if edge > 0.00: 
                                             ev = QuantEngine.calculate_ev(true_prob_h, odds)
                                             kelly = QuantEngine.calculate_kelly(true_prob_h, odds)
@@ -166,19 +167,28 @@ with tab1:
                                                 "Edge": f"+{edge*100:.1f}%", 
                                                 "EV": f"+{ev*100:.1f}%", 
                                                 "Rec. Stake": f"{kelly*100:.2f}%",
-                                                "AI Rationale": insight
+                                                "AI Rationale": insight,
+                                                # Raw numerical fields for sorting by safety (model probability) and margin (EV)
+                                                "_raw_prob": true_prob_h,
+                                                "_raw_ev": ev
                                             })
                                             
                     except Exception as e:
                         st.error(f"Failed to scan {league_name}: {e}")
                 
-                # Finalizing UI updates
-                status.update(label=f"✅ Multi-League Scan Complete! Found {len(bets)} total +EV opportunities.", state="complete", expanded=False)
+                status.update(label=f"✅ Scan Complete! Found {len(bets)} +EV opportunities.", state="complete", expanded=False)
                 
                 if bets:
                     df_bets = pd.DataFrame(bets)
-                    df_bets['Sort_EV'] = df_bets['EV'].str.replace('+', '').str.replace('%', '').astype(float)
-                    df_bets = df_bets.sort_values(by='Sort_EV', ascending=False).drop('Sort_EV', axis=1)
+                    
+                    # PRIORITY SORTING: Prioritize safety (higher model win probability) combined with EV margin
+                    # Score = Model Probability * EV
+                    df_bets['Safety_Score'] = df_bets['_raw_prob'] * df_bets['_raw_ev']
+                    df_bets = df_bets.sort_values(by='Safety_Score', ascending=False)
+                    
+                    # Clean up temporary helper columns
+                    df_bets = df_bets.drop(columns=['_raw_prob', '_raw_ev', 'Safety_Score'])
+                    
                     st.dataframe(df_bets, use_container_width=True, hide_index=True)
                 else:
                     st.info("No +EV opportunities found across the selected leagues on SkyBet right now. Check back closer to kickoff!")
@@ -188,9 +198,9 @@ with tab2:
     st.markdown("Calculate the true compounding Expected Value of a SkyBet Accumulator.")
     
     parlay_data = pd.DataFrame({
-        "Leg Description": ["Arsenal Match Winner", "Saka 1+ SOT", "Over 2.5 Goals (Madrid)"],
-        "SkyBet Odds (Decimal)": [1.95, 1.40, 1.85],
-        "True Model Prob (%)": [55.0, 75.0, 58.0]
+        "Leg Description": ["Arsenal Match Winner", "Safe Home Double Chance", "Over 1.5 Goals"],
+        "SkyBet Odds (Decimal)": [1.45, 1.25, 1.35],
+        "True Model Prob (%)": [72.0, 85.0, 78.0]
     })
     
     edited_parlay = st.data_editor(parlay_data, num_rows="dynamic", use_container_width=True, hide_index=True)
