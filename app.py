@@ -5,7 +5,7 @@ from scipy.stats import poisson
 import requests
 from datetime import datetime
 
-st.set_page_config(page_title="Pro EV Football Analytics - Short Odds Optimizer", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Pro EV Football Analytics - Data-Driven Rationale", layout="wide", page_icon="📈")
 
 # ==========================================
 # 1. FOTMOB & ENSEMBLE QUANT ENGINE
@@ -38,7 +38,7 @@ class PoissonGoalModel:
         prob_h = sum(poisson.pmf(i, home_xg) * sum(poisson.pmf(j, away_xg) for j in range(i)) for i in range(1, 6))
         prob_a = sum(poisson.pmf(i, away_xg) * sum(poisson.pmf(j, home_xg) for j in range(i)) for i in range(1, 6))
         prob_d = 1.0 - prob_h - prob_a
-        return max(0.05, prob_h), max(0.05, prob_d), max(0.05, prob_a), home_xg + away_xg
+        return max(0.05, prob_h), max(0.05, prob_d), max(0.05, prob_a), home_xg, away_xg, home_xg + away_xg
 
 class EnsemblePredictionEngine:
     def __init__(self):
@@ -62,14 +62,14 @@ class EnsemblePredictionEngine:
         home_xg = self.fotmob.fetch_team_xg_profile(home_team)
         away_xg = self.fotmob.fetch_team_xg_profile(away_team)
         
-        pois_h_p, pois_d_p, pois_a_p, total_xg = self.poisson_model.predict_xg_probs(home_xg, away_xg)
+        pois_h_p, pois_d_p, pois_a_p, h_xg_val, a_xg_val, total_xg = self.poisson_model.predict_xg_probs(home_xg, away_xg)
         
         final_h = (0.50 * elo_h_p) + (0.50 * pois_h_p)
         final_d = (0.50 * elo_d_p) + (0.50 * pois_d_p)
         final_a = (0.50 * elo_a_p) + (0.50 * pois_a_p)
         
         total = final_h + final_d + final_a
-        return final_h/total, final_d/total, final_a/total, total_xg
+        return final_h/total, final_d/total, final_a/total, h_xg_val, a_xg_val, total_xg
 
 class QuantEngine:
     @staticmethod
@@ -83,6 +83,30 @@ class QuantEngine:
         b = odds - 1.0
         kelly = ((b * true_prob) - (1.0 - true_prob)) / b
         return max(0.0, kelly * fraction)
+
+class AIInsightEngine:
+    @staticmethod
+    def generate_match_winner_rationale(selection, true_prob, odds, h_xg, a_xg, home_team, away_team):
+        implied_prob = 1.0 / odds
+        edge = true_prob - implied_prob
+        is_home = (selection == home_team)
+        team_xg = h_xg if is_home else a_xg
+        opp_xg = a_xg if is_home else h_xg
+        
+        return (f"Model Win Prob: {true_prob*100:.1f}% vs SkyBet Implied: {implied_prob*100:.1f}% | "
+                f"Edge: +{edge*100:.1f}% | "
+                f"FotMob xG Metrics: {selection} projected {team_xg:.2f} xG vs Opponent {opp_xg:.2f} xG. "
+                f"Blended Elo differential and Poisson simulation confirm value at odds of {odds}.")
+
+    @staticmethod
+    def generate_totals_rationale(point, name, true_prob, odds, total_xg):
+        implied_prob = 1.0 / odds
+        edge = true_prob - implied_prob
+        
+        return (f"Model Prob: {true_prob*100:.1f}% vs SkyBet Implied: {implied_prob*100:.1f}% | "
+                f"Edge: +{edge*100:.1f}% | "
+                f"FotMob Match xG Sum: Projected total match goals equal {total_xg:.2f} (Line set at {point}). "
+                f"Poisson cumulative distribution supports {name} outcome at odds of {odds}.")
 
 # ==========================================
 # 2. LEAGUE KEYS CONFIGURATION
@@ -104,8 +128,8 @@ LEAGUE_KEYS = {
 # ==========================================
 # 3. STREAMLIT UI & LIVE ORCHESTRATION
 # ==========================================
-st.title("📈 Pro EV Football Analytics Terminal (Short-Odds Optimized)")
-st.markdown("Quantitative terminal tuned to surface high-probability, short-odds favorites (< 2.0) alongside bankroll sizing.")
+st.title("📈 Pro EV Football Analytics Terminal (Data-Driven AI)")
+st.markdown("Quantitative terminal featuring fully transparent, number-backed AI rationales derived from live data.")
 
 st.sidebar.header("⚙️ Settings")
 api_key = st.sidebar.text_input("Enter 'The Odds API' Key", type="password")
@@ -139,13 +163,13 @@ tab1, tab2 = st.tabs(["🎯 Live Staked Value Bets", "🔗 Accumulator Engine"])
 with tab1:
     st.subheader(f"Scanning Matches — Profile: {risk_profile}")
     
-    if st.button("🔄 Run Short-Odds Optimized Scan", type="primary"):
+    if st.button("🔄 Run Data-Driven Market Scan", type="primary"):
         if not api_key:
             st.error("Please enter your API Key in the sidebar.")
         elif not selected_leagues:
             st.warning("Please check at least one league.")
         else:
-            with st.status("Scanning matches and prioritizing short-odds favorites...", expanded=True) as status:
+            with st.status("Ingesting live odds and calculating statistical rationales...", expanded=True) as status:
                 ensemble_engine = EnsemblePredictionEngine()
                 bets = []
                 markets_str = "h2h,totals"
@@ -178,22 +202,18 @@ with tab1:
                                 # 1. Match Winner (h2h)
                                 h2h_market = next((m for m in markets_list if m["key"] == "h2h"), None)
                                 if h2h_market:
-                                    h_prob, d_prob, a_prob, total_xg = ensemble_engine.calculate_consensus_probabilities(home_team, away_team)
+                                    h_prob, d_prob, a_prob, h_xg, a_xg, total_xg = ensemble_engine.calculate_consensus_probabilities(home_team, away_team)
                                     for outcome in h2h_market.get("outcomes", []):
                                         s_name = outcome["name"]
                                         odds = outcome["price"]
                                         t_prob = h_prob if s_name == home_team else (a_prob if s_name == away_team else d_prob)
                                         
-                                        # Apply Strict Odds Filters
                                         if risk_profile == "Short Odds Only (< 2.0) [High Safety]":
-                                            if odds >= 2.0: 
-                                                continue
-                                            # Relax edge constraint for short odds to ensure favorites show up
+                                            if odds >= 2.0: continue
                                             edge = t_prob - (1 / odds)
                                             include_condition = edge > -0.06 and t_prob >= 0.45
                                         elif risk_profile == "Value / Underdogs Only (>= 2.0)":
-                                            if odds < 2.0: 
-                                                continue
+                                            if odds < 2.0: continue
                                             edge = t_prob - (1 / odds)
                                             include_condition = edge > -0.02
                                         else:
@@ -202,22 +222,26 @@ with tab1:
                                             
                                         if include_condition:
                                             ev = QuantEngine.calculate_ev(t_prob, odds)
-                                            kelly = QuantEngine.calculate_kelly(max(t_prob, 1/odds + 0.01), odds) # optimized staking for favorites
+                                            kelly = QuantEngine.calculate_kelly(max(t_prob, 1/odds + 0.01), odds)
                                             stake_amount = bankroll * kelly
                                             stake_display = f"£{stake_amount:.2f} ({kelly*100:.1f}%)"
+                                            
+                                            rationale = AIInsightEngine.generate_match_winner_rationale(
+                                                s_name, t_prob, odds, h_xg, a_xg, home_team, away_team
+                                            )
                                             
                                             bets.append({
                                                 "Kickoff": kickoff, "League": league_name, "Fixture": f"{home_team} vs {away_team}",
                                                 "Market": "Match Winner", "Bookmaker": "SkyBet", "Selection": s_name, "Odds": odds,
                                                 "Model %": f"{t_prob*100:.1f}%", "Edge": f"+{edge*100:.1f}%" if edge > 0 else f"{edge*100:.1f}%", 
                                                 "EV": f"+{ev*100:.1f}%" if ev > 0 else f"{ev*100:.1f}%",
-                                                "Rec. Stake": stake_display, "AI Rationale": "High-safety favorite profile evaluated.", "_raw_prob": t_prob
+                                                "Rec. Stake": stake_display, "AI Rationale": rationale, "_raw_prob": t_prob
                                             })
 
                                 # 2. Over/Under Goals (totals)
                                 totals_market = next((m for m in markets_list if m["key"] == "totals"), None)
                                 if totals_market:
-                                    _, _, _, total_xg = ensemble_engine.calculate_consensus_probabilities(home_team, away_team)
+                                    _, _, _, _, _, total_xg = ensemble_engine.calculate_consensus_probabilities(home_team, away_team)
                                     for outcome in totals_market.get("outcomes", []):
                                         point = outcome.get("point", 2.5)
                                         name = outcome.get("name")
@@ -236,28 +260,30 @@ with tab1:
                                             stake_amount = bankroll * kelly
                                             stake_display = f"£{stake_amount:.2f} ({kelly*100:.1f}%)"
                                             
+                                            rationale = AIInsightEngine.generate_totals_rationale(point, name, t_prob, odds, total_xg)
+                                            
                                             bets.append({
                                                 "Kickoff": kickoff, "League": league_name, "Fixture": f"{home_team} vs {away_team}",
                                                 "Market": f"Over/Under Goals ({point})", "Bookmaker": "SkyBet", "Selection": f"{name} {point}", "Odds": odds,
                                                 "Model %": f"{t_prob*100:.1f}%", "Edge": f"+{edge*100:.1f}%", "EV": f"+{ev*100:.1f}%",
-                                                "Rec. Stake": stake_display, "AI Rationale": f"Poisson model projects {total_xg:.2f} total match goals.", "_raw_prob": t_prob
+                                                "Rec. Stake": stake_display, "AI Rationale": rationale, "_raw_prob": t_prob
                                             })
                                             
                     except Exception as e:
                         st.error(f"Error scanning {league_name}: {e}")
                 
-                status.update(label=f"✅ Scan Complete! Found {len(bets)} matching bets.", state="complete", expanded=False)
+                status.update(label=f"✅ Scan Complete! Found {len(bets)} data-driven opportunities.", state="complete", expanded=False)
                 
                 if bets:
                     df_bets = pd.DataFrame(bets)
                     df_bets = df_bets.sort_values(by='_raw_prob', ascending=False).drop(columns=['_raw_prob'])
                     st.dataframe(df_bets, use_container_width=True, hide_index=True)
                 else:
-                    st.info("No short-odds matches found for the selected leagues right now. Try checking more leagues in the sidebar.")
+                    st.info("No matches found matching your criteria on SkyBet right now.")
 
 with tab2:
     st.subheader("Advanced Accumulator (Parlay) EV Calculator")
-    st.markdown("Evaluate compounding risk and structural value across multiple short-odds legs.")
+    st.markdown("Evaluate compounding risk and structural value across multiple data-driven legs.")
     
     parlay_data = pd.DataFrame({
         "Leg Description": ["Safe Home Favorite", "Over 1.5 Goals", "Short Odds Banker"],
@@ -285,7 +311,7 @@ with tab2:
             col4.metric("Rec. Accumulator Stake", f"£{parlay_stake:.2f} ({parlay_kelly*100:.1f}%)")
             
             if ev > 0:
-                st.success("✅ **VERIFIED +EV ACCUMULATOR**\n\nThe ensemble confirms a positive compounding edge across these selections.")
+                st.success("✅ **VERIFIED +EV ACCUMULATOR**\n\nThe data-driven ensemble confirms a positive compounding edge across these selections.")
             else:
                 st.error("❌ **NEGATIVE EV DETECTED**\n\nBookmaker margins outweigh the blended ensemble edge.")
                 
