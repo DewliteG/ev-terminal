@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -6,13 +7,12 @@ import requests
 from datetime import datetime
 from sklearn.linear_model import LogisticRegression
 
-st.set_page_config(page_title="Institutional ML Terminal - FotMob & Parlay Engine", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Institutional ML Terminal - Multi-Market", layout="wide", page_icon="📈")
 
 # ==========================================
 # 1. FOTMOB DATA ENGINE & ML ENSEMBLE
 # ==========================================
 class FotMobDataEngine:
-    """Ingests rolling expected goals (xG) metrics mirroring FotMob backend telemetry."""
     @staticmethod
     def fetch_team_xg_profile(team_name: str) -> float:
         fotmob_xg_cache = {
@@ -24,7 +24,6 @@ class FotMobDataEngine:
         return fotmob_xg_cache.get(team_name, 1.35)
 
 class DixonColesPoissonModel:
-    """Enhanced Dixon-Coles model correcting for low-score dependencies (0-0, 1-0, 0-1, 1-1)."""
     def predict_corrected_probs(self, home_xg: float, away_xg: float):
         h_lambda = max(0.4, home_xg)
         a_lambda = max(0.4, away_xg)
@@ -50,7 +49,6 @@ class DixonColesPoissonModel:
         return max(0.02, prob_h/total), max(0.02, prob_d/total), max(0.02, prob_a/total), h_lambda + a_lambda
 
 class CalibratedMLClassifierEngine:
-    """Supervised logistic classification with historical feature weight calibration."""
     def __init__(self):
         self.model = LogisticRegression()
         X_train = np.array([
@@ -69,7 +67,6 @@ class CalibratedMLClassifierEngine:
             return 0.55
 
 class InstitutionalEnsembleEngine:
-    """Blends FotMob xG telemetry, Dixon-Coles, Elo, and Calibrated Machine Learning Classifiers."""
     def __init__(self):
         self.fotmob = FotMobDataEngine()
         self.dc_model = DixonColesPoissonModel()
@@ -85,21 +82,14 @@ class InstitutionalEnsembleEngine:
         elo_h = base_elos.get(home_team, 1680)
         elo_a = base_elos.get(away_team, 1680)
         
-        # Pull live xG metrics via FotMob Data Engine
         home_xg = self.fotmob.fetch_team_xg_profile(home_team)
         away_xg = self.fotmob.fetch_team_xg_profile(away_team)
         
-        # 1. Dixon-Coles Model Output
         dc_h, dc_d, dc_a, total_xg = self.dc_model.predict_corrected_probs(home_xg, away_xg)
-        
-        # 2. Elo Probability Output
         rating_diff = (elo_h + 65.0) - elo_a
         elo_h_prob = 1.0 / (1.0 + 10.0 ** (-rating_diff / 400.0))
-        
-        # 3. Calibrated ML Classifier Output
         ml_prob = self.ml_classifier.predict_ml_probability(elo_h - elo_a, home_xg - away_xg, 1)
         
-        # 4. Multi-Model Consensus Layer
         final_h = (0.40 * dc_h) + (0.35 * elo_h_prob) + (0.25 * ml_prob)
         final_a = (0.40 * dc_a) + (0.35 * (1.0 - elo_h_prob)) + (0.25 * (1.0 - ml_prob))
         final_d = max(0.08, 1.0 - final_h - final_a)
@@ -122,17 +112,12 @@ class QuantEngine:
 
 class AIInsightEngine:
     @staticmethod
-    def generate_rationale(selection, true_prob, odds, h_xg, a_xg, home_team, away_team):
+    def generate_rationale(selection, true_prob, odds, h_xg, a_xg):
         implied_prob = 1.0 / odds
         edge = true_prob - implied_prob
-        is_home = (selection == home_team)
-        team_xg = h_xg if is_home else a_xg
-        opp_xg = a_xg if is_home else h_xg
-        
-        return (f"[FotMob & ML Validated] Model Prob: {true_prob*100:.1f}% vs Implied: {implied_prob*100:.1f}% | "
+        return (f"[ML Multi-Market Validated] Model Prob: {true_prob*100:.1f}% vs Implied: {implied_prob*100:.1f}% | "
                 f"Edge: +{edge*100:.1f}% | "
-                f"FotMob xG Metrics: {selection} ({team_xg:.2f} xG vs {opp_xg:.2f} xG). "
-                f"Dixon-Coles correction & ML classification applied.")
+                f"FotMob xG Telemetry ({h_xg:.2f} vs {a_xg:.2f}). Dixon-Coles correction applied.")
 
 # ==========================================
 # 2. LEAGUE CONFIGURATION
@@ -154,8 +139,8 @@ LEAGUE_KEYS = {
 # ==========================================
 # 3. STREAMLIT UI & INTERACTIVE TABS
 # ==========================================
-st.title("📈 Institutional ML Terminal (FotMob Integrated)")
-st.markdown("Advanced quantitative terminal powered by **FotMob xG Telemetry**, **Dixon-Coles Corrections**, and **Smart Parlay Recommendations**.")
+st.title("📈 Institutional ML Terminal (Multi-Market Scan)")
+st.markdown("Advanced quantitative terminal scanning both **Match Winner** and **Over/Under Goals** markets using machine learning and FotMob xG data.")
 
 st.sidebar.header("⚙️ Terminal Settings")
 api_key = st.sidebar.text_input("Enter 'The Odds API' Key", type="password")
@@ -179,7 +164,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("Select Leagues to Scan")
 selected_leagues = [league for league in LEAGUE_KEYS.keys() if st.sidebar.checkbox(league, value=league in ["Premier League", "Champions League"])]
 
-tab1, tab2 = st.tabs(["🎯 Live FotMob-Enhanced Bets", "🔗 Smart Parlay Recommendations"])
+tab1, tab2 = st.tabs(["🎯 Live Multi-Market Bets", "🔗 Smart Parlay Recommendations"])
 
 if "scanned_bets" not in st.session_state:
     st.session_state.scanned_bets = []
@@ -187,20 +172,21 @@ if "scanned_bets" not in st.session_state:
 with tab1:
     st.subheader(f"Institutional Scan — Profile: {risk_profile}")
     
-    if st.button("🔄 Execute FotMob & ML Pipeline Scan", type="primary"):
+    if st.button("🔄 Execute Multi-Market ML Scan", type="primary"):
         if not api_key:
             st.error("Please enter your API Key in the sidebar.")
         elif not selected_leagues:
             st.warning("Please check at least one league.")
         else:
-            with st.status("Ingesting FotMob xG telemetry & running ML models...", expanded=True) as status:
+            with st.status("Scanning Match Winner and Over/Under Goals markets...", expanded=True) as status:
                 ensemble_engine = InstitutionalEnsembleEngine()
                 bets = []
                 
                 for league_name in selected_leagues:
                     league_key = LEAGUE_KEYS[league_name]
-                    st.write(f"📡 Querying FotMob xG profiles and SkyBet odds for {league_name}...")
+                    st.write(f"📡 Querying markets for {league_name}...")
                     
+                    # Requesting both h2h (Match Winner) and totals (Over/Under Goals)
                     url = f"https://api.the-odds-api.com/v4/sports/{league_key}/odds/?apiKey={api_key}&regions=uk&bookmakers=skybet&markets=h2h,totals"
                     
                     try:
@@ -218,10 +204,11 @@ with tab1:
                             skybet_data = next((b for b in match.get("bookmakers", []) if b["key"] == "skybet"), None)
                             if skybet_data:
                                 markets_list = skybet_data.get("markets", [])
+                                h_prob, d_prob, a_prob, h_xg, a_xg, total_xg = ensemble_engine.evaluate_fixture(home_team, away_team)
+                                
+                                # 1. Process Match Winner (h2h)
                                 h2h_market = next((m for m in markets_list if m["key"] == "h2h"), None)
                                 if h2h_market:
-                                    h_prob, d_prob, a_prob, h_xg, a_xg, total_xg = ensemble_engine.evaluate_fixture(home_team, away_team)
-                                    
                                     for outcome in h2h_market.get("outcomes", []):
                                         s_name = outcome["name"]
                                         odds = outcome["price"]
@@ -235,8 +222,7 @@ with tab1:
                                             ev = QuantEngine.calculate_ev(t_prob, odds)
                                             kelly = QuantEngine.calculate_kelly(t_prob, odds)
                                             stake = bankroll * kelly
-                                            
-                                            rationale = AIInsightEngine.generate_rationale(s_name, t_prob, odds, h_xg, a_xg, home_team, away_team)
+                                            rationale = AIInsightEngine.generate_rationale(s_name, t_prob, odds, h_xg, a_xg)
                                             
                                             bets.append({
                                                 "Kickoff": kickoff, "League": league_name, "Fixture": f"{home_team} vs {away_team}",
@@ -245,11 +231,40 @@ with tab1:
                                                 "EV": f"+{ev*100:.1f}%" if ev > 0 else f"{ev*100:.1f}%", "Rec. Stake": f"£{stake:.2f} ({kelly*100:.1f}%)",
                                                 "AI Rationale": rationale, "_raw_prob": t_prob, "_raw_odds": odds
                                             })
+
+                                # 2. Process Over/Under Goals (totals)
+                                totals_market = next((m for m in markets_list if m["key"] == "totals"), None)
+                                if totals_market:
+                                    for outcome in totals_market.get("outcomes", []):
+                                        point = outcome.get("point", 2.5)
+                                        name = outcome.get("name") # 'Over' or 'Under'
+                                        odds = outcome["price"]
+                                        
+                                        poisson_under = sum(poisson.pmf(i, total_xg) for i in range(3))
+                                        t_prob = (1.0 - poisson_under) if name == "Over" else poisson_under
+                                        
+                                        if risk_profile == "Short Odds Only (< 2.0) [High Safety]" and odds >= 2.0: continue
+                                        if risk_profile == "Value / Underdogs Only (>= 2.0)" and odds < 2.0: continue
+                                        
+                                        edge = t_prob - (1 / odds)
+                                        if edge > -0.05:
+                                            ev = QuantEngine.calculate_ev(t_prob, odds)
+                                            kelly = QuantEngine.calculate_kelly(t_prob, odds)
+                                            stake = bankroll * kelly
+                                            rationale = f"[Multi-Market Totals] Model Prob: {t_prob*100:.1f}% | Total Match xG: {total_xg:.2f} (Line: {point})"
+                                            
+                                            bets.append({
+                                                "Kickoff": kickoff, "League": league_name, "Fixture": f"{home_team} vs {away_team}",
+                                                "Market": f"Over/Under Goals ({point})", "Bookmaker": "SkyBet", "Selection": f"{name} {point}", "Odds": odds,
+                                                "Model %": f"{t_prob*100:.1f}%", "Edge": f"+{edge*100:.1f}%" if edge > 0 else f"{edge*100:.1f}%",
+                                                "EV": f"+{ev*100:.1f}%" if ev > 0 else f"{ev*100:.1f}%", "Rec. Stake": f"£{stake:.2f} ({kelly*100:.1f}%)",
+                                                "AI Rationale": rationale, "_raw_prob": t_prob, "_raw_odds": odds
+                                            })
                                             
                     except Exception as e:
                         st.error(f"Error scanning {league_name}: {e}")
                 
-                status.update(label=f"✅ Scan Complete! Found {len(bets)} FotMob-enhanced opportunities.", state="complete", expanded=False)
+                status.update(label=f"✅ Scan Complete! Found {len(bets)} multi-market opportunities.", state="complete", expanded=False)
                 st.session_state.scanned_bets = bets
                 
                 if bets:
@@ -260,10 +275,10 @@ with tab1:
 
 with tab2:
     st.subheader("🔗 Automated Smart Parlay (Accumulator) Recommendations")
-    st.markdown("Aggregates top-ranked FotMob-analyzed ML selections into high-probability compounding accumulators.")
+    st.markdown("Aggregates top-ranked multi-market selections into compounding accumulators.")
     
     if not st.session_state.scanned_bets:
-        st.info("Please run a live market scan in the 'Live FotMob-Enhanced Bets' tab first to generate smart parlay recommendations.")
+        st.info("Please run a live market scan in the 'Live Multi-Market Bets' tab first.")
     else:
         valid_bets = sorted(st.session_state.scanned_bets, key=lambda x: x["_raw_prob"], reverse=True)
         
@@ -291,10 +306,13 @@ with tab2:
                         st.markdown("**Accumulator Legs:**")
                         leg_df = pd.DataFrame([{
                             "Fixture": leg["Fixture"],
+                            "Market": leg["Market"],
                             "Selection": leg["Selection"],
                             "Odds": leg["Odds"],
                             "Model Prob": leg["Model %"]
                         } for leg in selected_legs])
                         st.dataframe(leg_df, use_container_width=True, hide_index=True)
         else:
-            st.warning("Not enough qualifying selections found to construct multi-leg accumulators. Try scanning more leagues.")
+            st.warning("Not enough qualifying selections found to construct multi-leg accumulators.")
+
+```
