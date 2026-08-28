@@ -25,12 +25,9 @@ class QuantEngine:
 
 class PoissonGoalModel:
     def __init__(self):
-        # In a full production app, this would be trained on historical CSV data.
-        # Here we apply baseline strengths for the live teams fetched.
         self.team_stats = {}
         
     def predict_probs(self, home, away):
-        # Assigning slight home advantage baseline for live teams
         h_xg = 1.45
         a_xg = 1.15
         prob_h = sum(poisson.pmf(i, h_xg) * sum(poisson.pmf(j, a_xg) for j in range(i)) for i in range(1, 6))
@@ -47,30 +44,51 @@ class AIInsightEngine:
                 f"Value driven by a superior baseline Poisson distribution.")
 
 # ==========================================
-# 2. STREAMLIT UI & LIVE API ORCHESTRATION
+# 2. THE ODDS API LEAGUE KEYS
+# ==========================================
+LEAGUE_KEYS = {
+    "Premier League": "soccer_epl",
+    "Championship": "soccer_efl_champ",
+    "Champions League": "soccer_uefa_champs_league",
+    "Europa League": "soccer_uefa_europa_league",
+    "La Liga": "soccer_spain_la_liga",
+    "Bundesliga": "soccer_germany_bundesliga",
+    "Serie A": "soccer_italy_serie_a",
+    "Ligue 1": "soccer_france_ligue_one",
+    "Eredivisie": "soccer_netherlands_eredivisie",
+    "Primeira Liga": "soccer_portugal_primeira_liga",
+    "MLS": "soccer_usa_mls"
+}
+
+# ==========================================
+# 3. STREAMLIT UI & LIVE API ORCHESTRATION
 # ==========================================
 st.title("📈 EV Football Analytics Terminal (SkyBet)")
 st.markdown("Identify mathematically profitable betting opportunities strictly on **SkyBet** using real live fixtures.")
 
 # Sidebar API Configuration
-st.sidebar.header("⚙️ API Configuration")
+st.sidebar.header("⚙️ Settings")
 api_key = st.sidebar.text_input("Enter 'The Odds API' Key", type="password")
+selected_league_name = st.sidebar.selectbox("Select League to Scan", list(LEAGUE_KEYS.keys()))
+selected_league_key = LEAGUE_KEYS[selected_league_name]
+
+st.sidebar.markdown("---")
 st.sidebar.markdown("Get a free key at [the-odds-api.com](https://the-odds-api.com/). The free tier grants 500 requests per month.")
 
 tab1, tab2 = st.tabs(["🎯 Live SkyBet Value Bets", "🔗 Accumulator Engine"])
 
 with tab1:
-    st.subheader("Scanning Real Upcoming Football Matches")
+    st.subheader(f"Scanning Real Upcoming Matches: {selected_league_name}")
     
-    if st.button("🔄 Scan Live SkyBet Markets", type="primary"):
+    if st.button(f"🔄 Scan Live {selected_league_name} Markets", type="primary"):
         if not api_key:
             st.error("Please enter your API Key in the sidebar to fetch real fixtures.")
         else:
-            with st.status("Fetching live real-world data...", expanded=True) as status:
-                st.write("📡 Contacting The Odds API for upcoming football matches...")
+            with st.status(f"Fetching live {selected_league_name} data...", expanded=True) as status:
+                st.write(f"📡 Contacting The Odds API for {selected_league_name} matches...")
                 
-                # Call The Odds API for upcoming soccer matches, filtered to UK region & SkyBet
-                url = f"https://api.the-odds-api.com/v4/sports/soccer/odds/?apiKey={api_key}&regions=uk&bookmakers=skybet&markets=h2h"
+                # Using the specific league key selected by the user
+                url = f"https://api.the-odds-api.com/v4/sports/{selected_league_key}/odds/?apiKey={api_key}&regions=uk&bookmakers=skybet&markets=h2h"
                 
                 try:
                     response = requests.get(url)
@@ -78,8 +96,11 @@ with tab1:
                     
                     if response.status_code != 200:
                         st.error(f"API Error: {data.get('message', 'Unknown error')}")
+                    elif not data:
+                        st.warning(f"No upcoming matches found for {selected_league_name} on SkyBet right now.")
+                        status.update(label="Scan finished with no matches.", state="error")
                     else:
-                        st.write(f"✅ Found {len(data)} real upcoming matches.")
+                        st.write(f"✅ Found {len(data)} real upcoming {selected_league_name} matches.")
                         st.write("🧠 Running Quantitative EV Engine against live odds...")
                         
                         poisson_model = PoissonGoalModel()
@@ -88,7 +109,6 @@ with tab1:
                         for match in data:
                             home_team = match.get("home_team")
                             away_team = match.get("away_team")
-                            league = match.get("sport_title")
                             
                             # Format Kickoff Time
                             kickoff_raw = match.get("commence_time")
@@ -112,15 +132,15 @@ with tab1:
                                         
                                         edge = true_prob_h - (1 / odds)
                                         
-                                        # Only display bets with a mathematical edge
-                                        if edge > 0.01: 
+                                        # Display bets with any edge to ensure data appears, filter higher for stricter EV
+                                        if edge > 0.00: 
                                             ev = QuantEngine.calculate_ev(true_prob_h, odds)
                                             kelly = QuantEngine.calculate_kelly(true_prob_h, odds)
                                             insight = AIInsightEngine.generate(home_team, true_prob_h, odds, edge)
                                             
                                             bets.append({
                                                 "Kickoff": kickoff,
-                                                "League": league, 
+                                                "League": selected_league_name, 
                                                 "Fixture": f"{home_team} vs {away_team}", 
                                                 "Market": "Match Winner", 
                                                 "Bookmaker": "SkyBet",
@@ -133,7 +153,7 @@ with tab1:
                                                 "AI Rationale": insight
                                             })
                         
-                        status.update(label=f"✅ Analysis Complete! Found {len(bets)} +EV opportunities.", state="complete", expanded=False)
+                        status.update(label=f"✅ Analysis Complete! Found {len(bets)} +EV opportunities in {selected_league_name}.", state="complete", expanded=False)
                         
                         if bets:
                             df_bets = pd.DataFrame(bets)
@@ -141,7 +161,7 @@ with tab1:
                             df_bets = df_bets.sort_values(by='Sort_EV', ascending=False).drop('Sort_EV', axis=1)
                             st.dataframe(df_bets, use_container_width=True, hide_index=True)
                         else:
-                            st.info("No +EV opportunities found on SkyBet right now. Check back closer to kickoff!")
+                            st.info("No +EV opportunities found on SkyBet right now for this league. Try scanning another league!")
                             
                 except Exception as e:
                     st.error(f"Failed to connect to API: {e}")
