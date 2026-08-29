@@ -1,8 +1,3 @@
-The error happens because Streamlit retains previous scan data in `st.session_state.scanned_bets` across re-runs. If an earlier scan ran before `_match_date` was introduced, or if an item in the session state lacked that key, looking up `b["_match_date"]` directly raises a `KeyError`.
-
-Here is the complete, defensive `app.py` script. It safely handles `_match_date` using `.get()` and provides fallback date parsing from `Kickoff` so old session states or edge cases never crash the app.
-
-```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,7 +7,50 @@ from datetime import datetime
 from collections import defaultdict
 from sklearn.linear_model import LogisticRegression
 
-st.set_page_config(page_title="SkyBet Institutional Quant Terminal", layout="wide", page_icon="📈")
+st.set_page_config(
+    page_title="SkyBet Institutional Quant Terminal",
+    layout="wide",
+    page_icon="📈"
+)
+
+# Custom Institutional CSS Styling
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Sleek card metrics */
+    div[data-testid="stMetric"] {
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 14px 18px;
+        border-radius: 10px;
+        backdrop-filter: blur(8px);
+    }
+    
+    /* Form containers */
+    div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: rgba(22, 27, 34, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 14px;
+    }
+    
+    /* Header accent */
+    .terminal-title {
+        font-size: 1.8rem;
+        font-weight: 700;
+        background: linear-gradient(90deg, #60A5FA, #34D399);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 4px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # =====================================================================
 # 1. QUANTITATIVE & MODELING UPGRADES: DYNAMIC FORM, LEAGUE HOME ADV, INJURIES
@@ -182,10 +220,10 @@ LEAGUE_KEYS = {
 }
 
 # =====================================================================
-# 3. STREAMLIT UI & DASHBOARD
+# 3. STREAMLIT UI & INTERACTION
 # =====================================================================
-st.title("📈 SkyBet Institutional Quant Terminal (Same-Day Parlay Engine)")
-st.markdown("Advanced terminal scanning **SkyBet odds** with ML validation, exponential decay, and **Same-Day Correlated Accumulators**.")
+st.markdown('<div class="terminal-title">📈 SkyBet Institutional Quant Terminal</div>', unsafe_allow_html=True)
+st.caption("Quantitative edge detection running Exponential Decay Form weighting, League Advantage, and Same-Day Correlated Parlays.")
 
 st.sidebar.header("⚙️ Terminal Settings")
 api_key = st.sidebar.text_input("Enter 'The Odds API' Key", type="password")
@@ -308,10 +346,8 @@ with tab2:
     if not st.session_state.scanned_bets:
         st.info("Please run a live market scan in the 'Live Value Bets' tab first.")
     else:
-        # Safely group valid bets strictly by matchday date
         bets_by_date = defaultdict(list)
         for b in st.session_state.scanned_bets:
-            # Fallback to date slice if _match_date key was missing in legacy state
             date_key = b.get("_match_date") or (b.get("Kickoff", "Matchday").split(",")[0] if "," in b.get("Kickoff", "") else "Today")
             bets_by_date[date_key].append(b)
         
@@ -320,7 +356,6 @@ with tab2:
         for match_date, day_bets in bets_by_date.items():
             valid_day_bets = sorted(day_bets, key=lambda x: -x.get("_raw_prob", 0))
             
-            # Prevent multiple selections from the exact same match
             seen_fixtures = set()
             unique_fixture_bets = []
             for b in valid_day_bets:
@@ -366,57 +401,3 @@ with tab2:
                 
         if not rendered_any_accumulator:
             st.warning("No single matchday had 2 or more distinct fixtures to form same-day accumulators. Try selecting more leagues in the sidebar.")
-
-```
-
-def inject_custom_ui():
-    st.markdown("""
-    <style>
-        /* Import clean modern font */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        
-        * {
-            font-family: 'Inter', sans-serif;
-        }
-
-        /* Metric cards styling */
-        div[data-testid="stMetric"] {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 16px 20px;
-            border-radius: 12px;
-            backdrop-filter: blur(10px);
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-        }
-        
-        /* Container cards */
-        div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
-            background-color: rgba(18, 22, 34, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 14px;
-            padding: 18px;
-            margin-bottom: 12px;
-        }
-
-        /* Custom badge styling */
-        .edge-badge {
-            background-color: rgba(16, 185, 129, 0.15);
-            color: #10B981;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            border: 1px solid rgba(16, 185, 129, 0.3);
-            display: inline-block;
-        }
-        
-        .odds-pill {
-            background-color: rgba(59, 130, 246, 0.15);
-            color: #60A5FA;
-            padding: 3px 8px;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            font-weight: 600;
-        }
-    </style>
-    """, unsafe_allow_html=True)
