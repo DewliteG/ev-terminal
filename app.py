@@ -106,7 +106,7 @@ LEAGUE_KEYS = {
 # 3. STREAMLIT UI & DASHBOARD
 # ==========================================
 st.title("📈 Institutional Synthetic & Multi-Market Terminal")
-st.markdown("Advanced terminal utilizing **PPDA/Field Tilt tactical metrics**, **Referee Disciplinary Models**, and **Synthetic Market Simulation**.")
+st.markdown("Advanced terminal prioritizing **Match Winner** markets alongside tactical PPDA simulations.")
 
 st.sidebar.header("⚙️ Terminal Settings")
 api_key = st.sidebar.text_input("Enter 'The Odds API' Key", type="password")
@@ -138,13 +138,13 @@ if "scanned_bets" not in st.session_state:
 with tab1:
     st.subheader(f"Synthetic Multi-Market Scan — Profile: {risk_profile}")
     
-    if st.button("🔄 Execute Synthetic & Tactical Scan", type="primary"):
+    if st.button("🔄 Execute Match Winner Prioritized Scan", type="primary"):
         if not api_key:
             st.error("Please enter your API Key in the sidebar.")
         elif not selected_leagues:
             st.warning("Please check at least one league.")
         else:
-            with st.status("Simulating synthetic markets, tactical PPDA, and referee cards...", expanded=True) as status:
+            with st.status("Simulating markets and prioritizing Match Winner bets...", expanded=True) as status:
                 synthetic_engine = DixonColesSyntheticEngine()
                 bets = []
                 
@@ -171,7 +171,7 @@ with tab1:
                                 markets_list = skybet_data.get("markets", [])
                                 sim_res = synthetic_engine.simulate_fixture(home_team, away_team)
                                 
-                                # 1. Match Winner (h2h)
+                                # 1. Match Winner (h2h) - PRIORITIZED
                                 h2h_market = next((m for m in markets_list if m["key"] == "h2h"), None)
                                 if h2h_market:
                                     for outcome in h2h_market.get("outcomes", []):
@@ -189,7 +189,7 @@ with tab1:
                                         if risk_profile == "Value / Underdogs Only (>= 2.0)" and odds < 2.0: continue
                                         
                                         edge = t_prob - (1 / odds)
-                                        if edge > -0.08: # Permissive threshold to ensure match winners populate
+                                        if edge > -0.08:
                                             ev = QuantEngine.calculate_ev(t_prob, odds)
                                             kelly = QuantEngine.calculate_kelly(t_prob, odds)
                                             stake = bankroll * kelly
@@ -199,10 +199,11 @@ with tab1:
                                                 "Market": "Match Winner", "Bookmaker": "SkyBet", "Selection": s_name, "Odds": odds,
                                                 "Model %": f"{t_prob*100:.1f}%", "Edge": f"+{edge*100:.1f}%" if edge > 0 else f"{edge*100:.1f}%",
                                                 "EV": f"+{ev*100:.1f}%" if ev > 0 else f"{ev*100:.1f}%", "Rec. Stake": f"£{stake:.2f} ({kelly*100:.1f}%)",
-                                                "AI Rationale": f"PPDA & Field Tilt integrated. Dixon-Coles Model Prob: {t_prob*100:.1f}%.", "_raw_prob": t_prob, "_raw_odds": odds
+                                                "AI Rationale": f"Match Winner priority. Dixon-Coles Model Prob: {t_prob*100:.1f}%.", 
+                                                "_raw_prob": t_prob, "_raw_odds": odds, "_market_priority": 0
                                             })
 
-                                # 2. Synthetic Team Goals & Handicaps
+                                # 2. Secondary Synthetic Markets
                                 synthetic_markets = [
                                     {"market": "Team Total Goals", "selection": f"{home_team} Over 1.5", "prob": sim_res["home_over_15"], "odds": 1.85},
                                     {"market": "Team Total Goals", "selection": f"{away_team} Over 0.5", "prob": sim_res["away_over_05"], "odds": 1.55},
@@ -226,10 +227,11 @@ with tab1:
                                             "Market": syn["market"], "Bookmaker": "Synthetic Model", "Selection": syn["selection"], "Odds": odds,
                                             "Model %": f"{t_prob*100:.1f}%", "Edge": f"+{edge*100:.1f}%" if edge > 0 else f"{edge*100:.1f}%",
                                             "EV": f"+{ev*100:.1f}%" if ev > 0 else f"{ev*100:.1f}%", "Rec. Stake": f"£{stake:.2f} ({kelly*100:.1f}%)",
-                                            "AI Rationale": f"Synthetically derived via tactical PPDA and Dixon-Coles goal expectation matrix.", "_raw_prob": t_prob, "_raw_odds": odds
+                                            "AI Rationale": f"Synthetically derived via tactical PPDA.", 
+                                            "_raw_prob": t_prob, "_raw_odds": odds, "_market_priority": 1
                                         })
 
-                                # 3. Referee Disciplinary Cards Market
+                                # 3. Disciplinary Cards Market
                                 _, _, card_prob = RefereeDisciplinaryModel.predict_disciplinary_metrics(home_team, away_team)
                                 card_odds = 1.75
                                 card_edge = card_prob - (1 / card_odds)
@@ -243,7 +245,8 @@ with tab1:
                                         "Market": "Over/Under Cards", "Bookmaker": "Referee Model", "Selection": "Over 3.5 Cards", "Odds": card_odds,
                                         "Model %": f"{card_prob*100:.1f}%", "Edge": f"+{card_edge*100:.1f}%",
                                         "EV": f"+{ev*100:.1f}%", "Rec. Stake": f"£{stake:.2f} ({kelly*100:.1f}%)",
-                                        "AI Rationale": f"Referee strictness index combined with team foul rates projects high disciplinary points.", "_raw_prob": card_prob, "_raw_odds": card_odds
+                                        "AI Rationale": f"Referee strictness index combined with team foul rates.", 
+                                        "_raw_prob": card_prob, "_raw_odds": card_odds, "_market_priority": 2
                                     })
                                             
                     except Exception as e:
@@ -253,19 +256,21 @@ with tab1:
                 st.session_state.scanned_bets = bets
                 
                 if bets:
-                    df_bets = pd.DataFrame(bets).sort_values(by='_raw_prob', ascending=False).drop(columns=['_raw_prob', '_raw_odds'])
+                    df_bets = pd.DataFrame(bets)
+                    # Sort primarily by market priority (Match Winner first) then by raw probability
+                    df_bets = df_bets.sort_values(by=['_market_priority', '_raw_prob'], ascending=[True, False]).drop(columns=['_raw_prob', '_raw_odds', '_market_priority'])
                     st.dataframe(df_bets, use_container_width=True, hide_index=True)
                 else:
                     st.info("No matching fixtures found under current parameters.")
 
 with tab2:
     st.subheader("🔗 Automated Smart Parlay (Accumulator) Recommendations")
-    st.markdown("Aggregates top-ranked synthetic, disciplinary, and multi-market selections into compounding accumulators.")
+    st.markdown("Aggregates top-ranked selections into compounding accumulators with Match Winner priority.")
     
     if not st.session_state.scanned_bets:
         st.info("Please run a live market scan in the first tab first.")
     else:
-        valid_bets = sorted(st.session_state.scanned_bets, key=lambda x: x["_raw_prob"], reverse=True)
+        valid_bets = sorted(st.session_state.scanned_bets, key=lambda x: (x["_market_priority"], -x["_raw_prob"]))
         
         if len(valid_bets) >= 2:
             parlay_sizes = [2, 3, 4]
