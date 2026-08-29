@@ -6,13 +6,12 @@ import requests
 from datetime import datetime
 from sklearn.linear_model import LogisticRegression
 
-st.set_page_config(page_title="Institutional Synthetic & ML Terminal", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Institutional Synthetic & Multi-Market Terminal", layout="wide", page_icon="📈")
 
 # ==========================================
 # 1. ADVANCED INSTITUTIONAL QUANT ENGINES
 # ==========================================
 class TacticalAndFotMobEngine:
-    """Ingests rolling xG, PPDA (pressing intensity), and Field Tilt (territorial dominance)."""
     @staticmethod
     def fetch_team_tactical_profile(team_name: str) -> dict:
         profiles = {
@@ -28,7 +27,6 @@ class TacticalAndFotMobEngine:
         return profiles.get(team_name, {"xg": 1.35, "ppda": 12.0, "field_tilt": 0.50, "foul_rate": 11.5})
 
 class RefereeDisciplinaryModel:
-    """Projects card and foul probabilities based on referee strictness index and team foul rates."""
     @staticmethod
     def predict_disciplinary_metrics(home_team: str, away_team: str, ref_strictness: float = 1.15):
         h_profile = TacticalAndFotMobEngine.fetch_team_tactical_profile(home_team)
@@ -36,17 +34,14 @@ class RefereeDisciplinaryModel:
         
         expected_match_fouls = (h_profile["foul_rate"] + a_profile["foul_rate"]) * 0.95
         expected_cards = (expected_match_fouls / 6.5) * ref_strictness
-        
         over_35_cards_prob = 1.0 - poisson.cdf(3, expected_cards)
         return expected_match_fouls, expected_cards, max(0.15, min(0.85, over_35_cards_prob))
 
 class DixonColesSyntheticEngine:
-    """Calculates full goal matrices, team totals, handicaps, and correct scores independently."""
     def simulate_fixture(self, home_team: str, away_team: str):
         h_tac = TacticalAndFotMobEngine.fetch_team_tactical_profile(home_team)
         a_tac = TacticalAndFotMobEngine.fetch_team_tactical_profile(away_team)
         
-        # Adjust lambda using PPDA and Field Tilt interaction
         h_lambda = max(0.4, h_tac["xg"] * (1.0 + (h_tac["field_tilt"] - 0.5)))
         a_lambda = max(0.4, a_tac["xg"] * (1.0 + (a_tac["field_tilt"] - 0.5)))
         
@@ -67,7 +62,6 @@ class DixonColesSyntheticEngine:
         prob_d = np.sum(np.diag(matrix))
         total = prob_h + prob_d + prob_a
         
-        # Synthetic Team Totals & Handicaps
         home_team_over_15 = 1.0 - (poisson.cdf(1, h_lambda))
         away_team_over_05 = 1.0 - (poisson.cdf(0, a_lambda))
         home_minus_1_handicap = np.sum([matrix[i, j] for i in range(2, 6) for j in range(i)])
@@ -112,7 +106,7 @@ LEAGUE_KEYS = {
 # 3. STREAMLIT UI & DASHBOARD
 # ==========================================
 st.title("📈 Institutional Synthetic & Multi-Market Terminal")
-st.markdown("Advanced terminal utilizing **PPDA/Field Tilt tactical metrics**, **Referee Disciplinary Models**, and **Synthetic Market Simulation** to bypass API limitations.")
+st.markdown("Advanced terminal utilizing **PPDA/Field Tilt tactical metrics**, **Referee Disciplinary Models**, and **Synthetic Market Simulation**.")
 
 st.sidebar.header("⚙️ Terminal Settings")
 api_key = st.sidebar.text_input("Enter 'The Odds API' Key", type="password")
@@ -126,8 +120,8 @@ st.sidebar.subheader("🛡️ Risk & Odds Filter")
 risk_profile = st.sidebar.selectbox(
     "Select Target Bet Profile",
     [
+        "All Odds (Favorites & Underdogs)",
         "Short Odds Only (< 2.0) [High Safety]", 
-        "All Odds (Favorites & Underdogs)", 
         "Value / Underdogs Only (>= 2.0)"
     ]
 )
@@ -177,19 +171,25 @@ with tab1:
                                 markets_list = skybet_data.get("markets", [])
                                 sim_res = synthetic_engine.simulate_fixture(home_team, away_team)
                                 
-                                # 1. Match Winner
+                                # 1. Match Winner (h2h)
                                 h2h_market = next((m for m in markets_list if m["key"] == "h2h"), None)
                                 if h2h_market:
                                     for outcome in h2h_market.get("outcomes", []):
                                         s_name = outcome["name"]
                                         odds = outcome["price"]
-                                        t_prob = sim_res["h_prob"] if s_name == home_team else (sim_res["a_prob"] if s_name == away_team else sim_res["d_prob"])
+                                        
+                                        if s_name == home_team:
+                                            t_prob = sim_res["h_prob"]
+                                        elif s_name == away_team:
+                                            t_prob = sim_res["a_prob"]
+                                        else:
+                                            t_prob = sim_res["d_prob"]
                                         
                                         if risk_profile == "Short Odds Only (< 2.0) [High Safety]" and odds >= 2.0: continue
                                         if risk_profile == "Value / Underdogs Only (>= 2.0)" and odds < 2.0: continue
                                         
                                         edge = t_prob - (1 / odds)
-                                        if edge > -0.05:
+                                        if edge > -0.08: # Permissive threshold to ensure match winners populate
                                             ev = QuantEngine.calculate_ev(t_prob, odds)
                                             kelly = QuantEngine.calculate_kelly(t_prob, odds)
                                             stake = bankroll * kelly
@@ -202,7 +202,7 @@ with tab1:
                                                 "AI Rationale": f"PPDA & Field Tilt integrated. Dixon-Coles Model Prob: {t_prob*100:.1f}%.", "_raw_prob": t_prob, "_raw_odds": odds
                                             })
 
-                                # 2. Synthetic Team Totals & Handicaps (Bypassing API omission)
+                                # 2. Synthetic Team Goals & Handicaps
                                 synthetic_markets = [
                                     {"market": "Team Total Goals", "selection": f"{home_team} Over 1.5", "prob": sim_res["home_over_15"], "odds": 1.85},
                                     {"market": "Team Total Goals", "selection": f"{away_team} Over 0.5", "prob": sim_res["away_over_05"], "odds": 1.55},
@@ -216,7 +216,7 @@ with tab1:
                                     if risk_profile == "Value / Underdogs Only (>= 2.0)" and odds < 2.0: continue
                                     
                                     edge = t_prob - (1 / odds)
-                                    if edge > -0.05:
+                                    if edge > -0.08:
                                         ev = QuantEngine.calculate_ev(t_prob, odds)
                                         kelly = QuantEngine.calculate_kelly(t_prob, odds)
                                         stake = bankroll * kelly
@@ -233,7 +233,7 @@ with tab1:
                                 _, _, card_prob = RefereeDisciplinaryModel.predict_disciplinary_metrics(home_team, away_team)
                                 card_odds = 1.75
                                 card_edge = card_prob - (1 / card_odds)
-                                if card_edge > -0.05:
+                                if card_edge > -0.08:
                                     ev = QuantEngine.calculate_ev(card_prob, card_odds)
                                     kelly = QuantEngine.calculate_kelly(card_prob, card_odds)
                                     stake = bankroll * kelly
@@ -249,7 +249,7 @@ with tab1:
                     except Exception as e:
                         st.error(f"Error scanning {league_name}: {e}")
                 
-                status.update(label=f"✅ Scan Complete! Found {len(bets)} synthetic and multi-market opportunities.", state="complete", expanded=False)
+                status.update(label=f"✅ Scan Complete! Found {len(bets)} opportunities.", state="complete", expanded=False)
                 st.session_state.scanned_bets = bets
                 
                 if bets:
