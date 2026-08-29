@@ -148,7 +148,6 @@ LEAGUE_LOGOS = {
     "MLS": "https://media.api-sports.io/football/leagues/253.png"
 }
 
-# Verified direct CDN badges for major European clubs with reliable fallback
 TEAM_BADGES = {
     "Arsenal": "https://media.api-sports.io/football/teams/42.png",
     "Aston Villa": "https://media.api-sports.io/football/teams/66.png",
@@ -178,7 +177,6 @@ def get_team_badge_url(team_name: str) -> str:
     for known_team, url in TEAM_BADGES.items():
         if known_team.lower() in team_name.lower():
             return url
-    # Clean avatar generator fallback for unlisted clubs
     clean_name = team_name.replace(" ", "+")
     return f"https://ui-avatars.com/api/?name={clean_name}&background=1E293B&color=38BDF8&size=64&bold=true"
 
@@ -317,10 +315,10 @@ class QuantEngine:
 
     @staticmethod
     def calculate_correlated_parlay_stake(legs: list, base_bankroll: float, fraction: float = 0.25):
-        combined_odds = np.prod([leg["_raw_odds"] for leg in legs])
-        joint_prob = np.prod([leg["_raw_prob"] for leg in legs])
+        combined_odds = np.prod([leg.get("_raw_odds", 1.0) for leg in legs])
+        joint_prob = np.prod([leg.get("_raw_prob", 0.0) for leg in legs])
         
-        leagues = [leg["League"] for leg in legs]
+        leagues = [leg.get("League", "") for leg in legs]
         unique_leagues = len(set(leagues))
         total_legs = len(legs)
         
@@ -329,7 +327,7 @@ class QuantEngine:
         
         penalized_joint_prob = joint_prob * correlation_penalty
         b = combined_odds - 1.0
-        kelly = max(0.0, ((b * penalized_joint_prob) - (1.0 - penalized_joint_prob)) / b) * fraction
+        kelly = max(0.0, ((b * penalized_joint_prob) - (1.0 - penalized_joint_prob)) / b) * fraction if b > 0 else 0.0
         
         return combined_odds, penalized_joint_prob, kelly, base_bankroll * kelly, correlation_penalty
 
@@ -498,14 +496,18 @@ with tab1:
                 status.update(label=f"✅ Scan Complete — {len(bets)} verified opportunities identified.", state="complete", expanded=False)
                 st.session_state.scanned_bets = bets
 
-    if st.session_state.scanned_bets:
-        valid_bets = st.session_state.scanned_bets
-        
-        # Top KPI Executive Row
+    # Defensive check: ensure cached bets have the necessary keys
+    valid_bets = [
+        b for b in st.session_state.scanned_bets 
+        if isinstance(b, dict) and "_raw_prob" in b and "_raw_odds" in b
+    ]
+
+    if valid_bets:
+        # Top KPI Executive Row using safe dict getters
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        top_edge = max(b["_raw_edge"] for b in valid_bets)
-        max_prob = max(b["_raw_prob"] for b in valid_bets)
-        best_ev = max(b["_raw_ev"] for b in valid_bets)
+        top_edge = max(b.get("_raw_edge", (b.get("_raw_prob", 0) - 1/b.get("_raw_odds", 1))) for b in valid_bets)
+        max_prob = max(b.get("_raw_prob", 0) for b in valid_bets)
+        best_ev = max(b.get("_raw_ev", 0) for b in valid_bets)
         
         kpi1.metric("Opportunities Found", f"{len(valid_bets)} Bets")
         kpi2.metric("Top Edge Captured", f"+{top_edge*100:.1f}%", delta="Positive Expected Edge")
@@ -515,10 +517,14 @@ with tab1:
         st.markdown("### 📊 Verified Value Opportunity Table")
         
         df_display = pd.DataFrame(valid_bets).sort_values(by='_raw_prob', ascending=False)
-        clean_table = df_display[[
-            "Logo", "League", "Kickoff", "Home Badge", "Home", "Away Badge", "Away", 
-            "Sel Badge", "Selection", "SkyBet Odds", "True Fair Odds", "Model Win %", "Implied %", "Edge", "EV", "Kelly Stake"
-        ]]
+        available_cols = [
+            c for c in [
+                "Logo", "League", "Kickoff", "Home Badge", "Home", "Away Badge", "Away", 
+                "Sel Badge", "Selection", "SkyBet Odds", "True Fair Odds", "Model Win %", 
+                "Implied %", "Edge", "EV", "Kelly Stake"
+            ] if c in df_display.columns
+        ]
+        clean_table = df_display[available_cols]
         
         st.dataframe(
             clean_table,
@@ -540,34 +546,41 @@ with tab1:
         
         # Interactive Match Cards with Badges
         for bet in valid_bets[:6]:
-            with st.expander(f"📌 {bet['Home']} vs {bet['Away']} — Pick: {bet['Selection']} @ {bet['SkyBet Odds']} (EV: {bet['EV']})"):
+            home_t = bet.get("Home", "Home")
+            away_t = bet.get("Away", "Away")
+            sel_t = bet.get("Selection", "-")
+            sky_odds = bet.get("SkyBet Odds", bet.get("Odds", "-"))
+            ev_val = bet.get("EV", "-")
+            
+            with st.expander(f"📌 {home_t} vs {away_t} — Pick: {sel_t} @ {sky_odds} (EV: {ev_val})"):
                 st.markdown(f"""
                 <div class="match-header-box">
                     <div style="display: flex; align-items: center; gap: 12px;">
-                        <img src="{bet['Home Badge']}" class="team-badge-lg">
-                        <span style="font-size: 1.1rem; font-weight: 700;">{bet['Home']}</span>
+                        <img src="{bet.get('Home Badge', '')}" class="team-badge-lg">
+                        <span style="font-size: 1.1rem; font-weight: 700;">{home_t}</span>
                         <span style="color: #64748B; font-weight: 600; margin: 0 4px;">vs</span>
-                        <span style="font-size: 1.1rem; font-weight: 700;">{bet['Away']}</span>
-                        <img src="{bet['Away Badge']}" class="team-badge-lg">
+                        <span style="font-size: 1.1rem; font-weight: 700;">{away_t}</span>
+                        <img src="{bet.get('Away Badge', '')}" class="team-badge-lg">
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <img src="{bet['Logo']}" class="league-logo">
-                        <span style="color: #94A3B8; font-weight: 500; font-size: 0.9rem;">{bet['League']} • {bet['Kickoff']}</span>
+                        <img src="{bet.get('Logo', '')}" class="league-logo">
+                        <span style="color: #94A3B8; font-weight: 500; font-size: 0.9rem;">{bet.get('League', '')} • {bet.get('Kickoff', '')}</span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 c1, c2, c3 = st.columns(3)
-                c1.markdown(f"**Selection:** <img src='{bet['Sel Badge']}' class='team-badge'> **{bet['Selection']}**", unsafe_allow_html=True)
-                c1.markdown(f"**SkyBet Price:** `{bet['SkyBet Odds']}`")
+                c1.markdown(f"**Selection:** <img src='{bet.get('Sel Badge', '')}' class='team-badge'> **{sel_t}**", unsafe_allow_html=True)
+                c1.markdown(f"**SkyBet Price:** `{sky_odds}`")
                 
-                c2.markdown(f"**True Fair Odds:** `1 @ {bet['True Fair Odds']}`")
-                c2.markdown(f"**Calculated Edge:** <span class='badge-edge'>{bet['Edge']}</span>", unsafe_allow_html=True)
+                c2.markdown(f"**True Fair Odds:** `1 @ {bet.get('True Fair Odds', '-')}`")
+                c2.markdown(f"**Calculated Edge:** <span class='badge-edge'>{bet.get('Edge', '-')}</span>", unsafe_allow_html=True)
                 
-                c3.markdown(f"**Home xG (Decayed):** `{bet['Home xG']:.2f}`")
-                c3.markdown(f"**Away xG (Decayed):** `{bet['Away xG']:.2f}`")
+                c3.markdown(f"**Home xG (Decayed):** `{bet.get('Home xG', 0.0):.2f}`")
+                c3.markdown(f"**Away xG (Decayed):** `{bet.get('Away xG', 0.0):.2f}`")
                 
-                st.progress(float(bet["_raw_prob"]), text=f"Model Consensus Win Probability: {bet['Model Win %']} (SkyBet Implied: {bet['Implied %']})")
+                raw_p = bet.get("_raw_prob", 0.5)
+                st.progress(float(raw_p), text=f"Model Consensus Win Probability: {bet.get('Model Win %', '-')} (SkyBet Implied: {bet.get('Implied %', '-')})")
     else:
         st.info("No active market scan loaded. Click **'Run Real-Time Scan'** above to fetch live SkyBet odds.")
 
@@ -575,11 +588,16 @@ with tab2:
     st.subheader("🔗 Correlated Same-Day Parlays")
     st.caption("Auto-grouped solely by calendar matchday, featuring team crests and intra-league variance penalties.")
     
-    if not st.session_state.scanned_bets:
+    valid_bets = [
+        b for b in st.session_state.scanned_bets 
+        if isinstance(b, dict) and "_raw_prob" in b and "_raw_odds" in b
+    ]
+    
+    if not valid_bets:
         st.info("Run a scan in the **'Live Market Edge Matrix'** tab first to generate parlay recommendations.")
     else:
         bets_by_date = defaultdict(list)
-        for b in st.session_state.scanned_bets:
+        for b in valid_bets:
             date_key = b.get("_match_date") or (b.get("Kickoff", "Matchday").split(",")[0] if "," in b.get("Kickoff", "") else "Today")
             bets_by_date[date_key].append(b)
             
@@ -591,7 +609,7 @@ with tab2:
             seen_fixtures = set()
             unique_fixture_bets = []
             for b in valid_day_bets:
-                fixture_name = f"{b.get('Home', '')} vs {b.get('Away', '')}"
+                fixture_name = f"{b.get('Home', b.get('Fixture', ''))} vs {b.get('Away', '')}"
                 if fixture_name not in seen_fixtures and "_raw_odds" in b and "_raw_prob" in b:
                     seen_fixtures.add(fixture_name)
                     unique_fixture_bets.append(b)
@@ -608,7 +626,7 @@ with tab2:
                     combined_odds, penalized_prob, kelly, parlay_stake, penalty_factor = QuantEngine.calculate_correlated_parlay_stake(
                         selected_legs, bankroll
                     )
-                    implied_prob = 1.0 / combined_odds
+                    implied_prob = 1.0 / combined_odds if combined_odds > 0 else 0.0
                     edge = penalized_prob - implied_prob
                     ev = QuantEngine.calculate_ev(penalized_prob, combined_odds)
                     
@@ -618,15 +636,17 @@ with tab2:
                             st.markdown(f"**Odds:** <span class='badge-odds'>{combined_odds:.2f}</span>", unsafe_allow_html=True)
                             st.markdown(f"**Penalized Joint Prob:** `{penalized_prob*100:.1f}%`")
                             st.markdown(f"**Expected Value:** <span class='badge-edge'>+{ev*100:.1f}%</span>", unsafe_allow_html=True)
-                            st.markdown(f"**Recommended Stake:** `{parlay_stake:.2f}` ({kelly*100:.1f}%)")
+                            st.markdown(f"**Recommended Stake:** `£{parlay_stake:.2f}` ({kelly*100:.1f}%)")
                             st.caption(f"Intra-league variance penalty: `{penalty_factor:.2f}x`")
                             
                             st.markdown("---")
                             st.markdown("**Accumulator Selections:**")
                             for leg in selected_legs:
+                                logo_html = f"<img src='{leg.get('Logo', '')}' class='league-logo' style='width:16px; height:16px;'> " if leg.get('Logo') else ""
+                                badge_html = f"<img src='{leg.get('Sel Badge', '')}' class='team-badge'> " if leg.get('Sel Badge') else ""
+                                odds_val = leg.get('SkyBet Odds', leg.get('Odds', '-'))
                                 st.markdown(
-                                    f"• <img src='{leg['Logo']}' class='league-logo' style='width:16px; height:16px;'> "
-                                    f"<img src='{leg['Sel Badge']}' class='team-badge'> **{leg['Selection']}** ({leg['SkyBet Odds']})",
+                                    f"• {logo_html}{badge_html}**{leg.get('Selection', '-')}** ({odds_val})",
                                     unsafe_allow_html=True
                                 )
                                 
