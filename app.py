@@ -257,7 +257,6 @@ with tab1:
                 
                 if bets:
                     df_bets = pd.DataFrame(bets)
-                    # Sort primarily by market priority (Match Winner first) then by raw probability
                     df_bets = df_bets.sort_values(by=['_market_priority', '_raw_prob'], ascending=[True, False]).drop(columns=['_raw_prob', '_raw_odds', '_market_priority'])
                     st.dataframe(df_bets, use_container_width=True, hide_index=True)
                 else:
@@ -270,7 +269,8 @@ with tab2:
     if not st.session_state.scanned_bets:
         st.info("Please run a live market scan in the first tab first.")
     else:
-        valid_bets = sorted(st.session_state.scanned_bets, key=lambda x: (x["_market_priority"], -x["_raw_prob"]))
+        # Fixed sorting key checking dictionary key safely
+        valid_bets = sorted(st.session_state.scanned_bets, key=lambda x: (x.get("_market_priority", 99), -x.get("_raw_prob", 0)))
         
         if len(valid_bets) >= 2:
             parlay_sizes = [2, 3, 4]
