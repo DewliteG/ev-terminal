@@ -238,7 +238,7 @@ with tab1:
                             away_team = match.get("away_team")
                             
                             dt_obj = datetime.strptime(match.get("commence_time"), "%Y-%m-%dT%H:%M:%SZ")
-                            match_date_str = dt_obj.strftime("%b %d, %Y") # Date grouping key (e.g. Aug 29, 2026)
+                            match_date_str = dt_obj.strftime("%b %d, %Y")
                             kickoff_display = dt_obj.strftime("%b %d, %H:%M")
                             
                             skybet_data = next((b for b in match.get("bookmakers", []) if b["key"] == "skybet"), None)
@@ -291,7 +291,7 @@ with tab1:
                 st.session_state.scanned_bets = bets
                 
                 if bets:
-                    df_bets = pd.DataFrame(bets).sort_values(by='_raw_prob', ascending=False).drop(columns=['_raw_prob', '_raw_odds', '_match_date'])
+                    df_bets = pd.DataFrame(bets).sort_values(by='_raw_prob', ascending=False).drop(columns=['_raw_prob', '_raw_odds', '_match_date'], errors='ignore')
                     st.dataframe(df_bets, use_container_width=True, hide_index=True)
                 else:
                     st.info("No matching fixtures found under current parameters.")
@@ -303,22 +303,25 @@ with tab2:
     if not st.session_state.scanned_bets:
         st.info("Please run a live market scan in the 'Live Value Bets' tab first.")
     else:
-        # Group valid bets strictly by same match calendar day
+        # Safely group valid bets strictly by matchday date
         bets_by_date = defaultdict(list)
         for b in st.session_state.scanned_bets:
-            bets_by_date[b["_match_date"]].append(b)
+            # Fallback to date slice if _match_date key was missing in legacy state
+            date_key = b.get("_match_date") or (b.get("Kickoff", "Matchday").split(",")[0] if "," in b.get("Kickoff", "") else "Today")
+            bets_by_date[date_key].append(b)
         
         rendered_any_accumulator = False
         
         for match_date, day_bets in bets_by_date.items():
             valid_day_bets = sorted(day_bets, key=lambda x: -x.get("_raw_prob", 0))
             
-            # Remove intra-match duplicates (e.g. Home Win and Away Win from same fixture)
+            # Prevent multiple selections from the exact same match
             seen_fixtures = set()
             unique_fixture_bets = []
             for b in valid_day_bets:
-                if b["Fixture"] not in seen_fixtures:
-                    seen_fixtures.add(b["Fixture"])
+                fixture_name = b.get("Fixture", "")
+                if fixture_name not in seen_fixtures and "_raw_odds" in b and "_raw_prob" in b:
+                    seen_fixtures.add(fixture_name)
                     unique_fixture_bets.append(b)
             
             if len(unique_fixture_bets) >= 2:
@@ -346,12 +349,12 @@ with tab2:
                             
                             st.markdown("**Accumulator Legs:**")
                             leg_df = pd.DataFrame([{
-                                "Kickoff Time": leg["Kickoff"],
-                                "Fixture": leg["Fixture"],
-                                "League": leg["League"],
-                                "Selection": leg["Selection"],
-                                "Odds": leg["Odds"],
-                                "Model Prob": leg["Model %"]
+                                "Kickoff Time": leg.get("Kickoff", "-"),
+                                "Fixture": leg.get("Fixture", "-"),
+                                "League": leg.get("League", "-"),
+                                "Selection": leg.get("Selection", "-"),
+                                "Odds": leg.get("Odds", "-"),
+                                "Model Prob": leg.get("Model %", "-")
                             } for leg in selected_legs])
                             st.dataframe(leg_df, use_container_width=True, hide_index=True)
                 st.markdown("---")
