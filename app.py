@@ -4,6 +4,7 @@ import numpy as np
 from scipy.stats import poisson
 import requests
 from datetime import datetime
+from collections import defaultdict
 from sklearn.linear_model import LogisticRegression
 
 st.set_page_config(page_title="SkyBet Institutional Quant Terminal", layout="wide", page_icon="📈")
@@ -12,7 +13,6 @@ st.set_page_config(page_title="SkyBet Institutional Quant Terminal", layout="wid
 # 1. QUANTITATIVE & MODELING UPGRADES: DYNAMIC FORM, LEAGUE HOME ADV, INJURIES
 # =====================================================================
 
-# League-calibrated empirical home advantage factors (Elo equivalent)
 LEAGUE_HOME_ADVANTAGE = {
     "Premier League": 55.0,
     "Championship": 62.0,
@@ -24,16 +24,14 @@ LEAGUE_HOME_ADVANTAGE = {
     "Ligue 1": 60.0,
     "Eredivisie": 64.0,
     "Primeira Liga": 65.0,
-    "MLS": 80.0 # Substantial travel fatigue creates larger home edge
+    "MLS": 80.0
 }
 
 class ExponentialDecayFormEngine:
-    """Computes rolling form and xG using exponential time-decay weighting (e^(-lambda * days))."""
     def __init__(self, decay_rate: float = 0.035):
         self.decay_rate = decay_rate
 
     def get_decayed_team_xg(self, team_name: str, base_xg: float) -> float:
-        # Simulated rolling match history (days_ago, match_xg)
         np.random.seed(abs(hash(team_name)) % (2**32))
         recent_matches = [
             {"days_ago": 4, "match_xg": base_xg * np.random.uniform(0.85, 1.25)},
@@ -42,17 +40,15 @@ class ExponentialDecayFormEngine:
             {"days_ago": 26, "match_xg": base_xg * np.random.uniform(0.70, 1.30)},
             {"days_ago": 35, "match_xg": base_xg * np.random.uniform(0.65, 1.10)}
         ]
-        
         weights = [np.exp(-self.decay_rate * m["days_ago"]) for m in recent_matches]
         weighted_xg = sum(w * m["match_xg"] for w, m in zip(weights, recent_matches)) / sum(weights)
         return round(float(weighted_xg), 2)
 
 class InjuryImpactEngine:
-    """Adjusts baseline team xG based on player availability and key absence severity."""
     @staticmethod
     def calculate_lineup_xg_multiplier(team_name: str, key_player_out: bool = False) -> float:
         if key_player_out:
-            return 0.88 # 12% reduction in team expected offensive output
+            return 0.88
         return 1.00
 
 class DixonColesPoissonModel:
@@ -65,7 +61,7 @@ class DixonColesPoissonModel:
             for j in range(6):
                 matrix[i, j] = poisson.pmf(i, h_lambda) * poisson.pmf(j, a_lambda)
                 
-        rho = -0.12 # Low-score correlation adjustment (Dixon-Coles tau)
+        rho = -0.12
         matrix[0, 0] *= (1.0 - h_lambda * a_lambda * rho)
         matrix[0, 1] *= (1.0 + h_lambda * rho)
         matrix[1, 0] *= (1.0 + a_lambda * rho)
@@ -112,25 +108,19 @@ class InstitutionalEnsembleEngine:
         elo_h = base_elos.get(home_team, 1680)
         elo_a = base_elos.get(away_team, 1680)
         
-        # 1. League-Specific Home Advantage Calibration
         home_adv = LEAGUE_HOME_ADVANTAGE.get(league_name, 55.0)
         rating_diff = (elo_h + home_adv) - elo_a
         elo_h_prob = 1.0 / (1.0 + 10.0 ** (-rating_diff / 400.0))
         
-        # 2. Dynamic Exponential Decay Form & Injury Adjustment
         raw_home_xg = 1.85 if elo_h > 1850 else 1.35
         raw_away_xg = 1.65 if elo_a > 1850 else 1.15
         
         decayed_h_xg = self.decay_engine.get_decayed_team_xg(home_team, raw_home_xg) * InjuryImpactEngine.calculate_lineup_xg_multiplier(home_team, home_injury)
         decayed_a_xg = self.decay_engine.get_decayed_team_xg(away_team, raw_away_xg) * InjuryImpactEngine.calculate_lineup_xg_multiplier(away_team, away_injury)
         
-        # 3. Dixon-Coles Bivariate Evaluation
         dc_h, dc_d, dc_a, h_xg_val, a_xg_val, total_xg = self.dc_model.predict_corrected_probs(decayed_h_xg, decayed_a_xg)
-        
-        # 4. Calibrated ML Model
         ml_prob = self.ml_classifier.predict_ml_probability(elo_h - elo_a, decayed_h_xg - decayed_a_xg, 1)
         
-        # 5. Multi-Model Consensus Blending
         final_h = (0.40 * dc_h) + (0.35 * elo_h_prob) + (0.25 * ml_prob)
         final_a = (0.40 * dc_a) + (0.35 * (1.0 - elo_h_prob)) + (0.25 * (1.0 - ml_prob))
         final_d = max(0.08, 1.0 - final_h - final_a)
@@ -153,18 +143,15 @@ class QuantEngine:
 
     @staticmethod
     def calculate_correlated_parlay_stake(legs: list, base_bankroll: float, fraction: float = 0.25):
-        """Applies Gaussian copula / intra-league variance correlation penalty to multi-leg Kelly sizing."""
         combined_odds = np.prod([leg["_raw_odds"] for leg in legs])
         joint_prob = np.prod([leg["_raw_prob"] for leg in legs])
         
-        # Check intra-league concentration
         leagues = [leg["League"] for leg in legs]
         unique_leagues = len(set(leagues))
         total_legs = len(legs)
         
-        # Correlation penalty factor: shrinks joint probability & Kelly stake if bets originate from same matchday schedule
         same_league_ratio = (total_legs - unique_leagues) / total_legs if total_legs > 1 else 0.0
-        correlation_penalty = 1.0 - (0.18 * same_league_ratio) # Max 18% sizing shrinkage for systemic league correlation
+        correlation_penalty = 1.0 - (0.18 * same_league_ratio)
         
         penalized_joint_prob = joint_prob * correlation_penalty
         b = combined_odds - 1.0
@@ -192,8 +179,8 @@ LEAGUE_KEYS = {
 # =====================================================================
 # 3. STREAMLIT UI & DASHBOARD
 # =====================================================================
-st.title("📈 SkyBet Institutional Quant Terminal (Decay & Correlation Engine)")
-st.markdown("Equipped with **Exponential Form Decay ($e^{-\lambda t}$)**, **League-Calibrated Home Advantage**, and **Correlated Accumulator Penalties**.")
+st.title("📈 SkyBet Institutional Quant Terminal (Same-Day Parlay Engine)")
+st.markdown("Advanced terminal scanning **SkyBet odds** with ML validation, exponential decay, and **Same-Day Correlated Accumulators**.")
 
 st.sidebar.header("⚙️ Terminal Settings")
 api_key = st.sidebar.text_input("Enter 'The Odds API' Key", type="password")
@@ -215,7 +202,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("Select Leagues to Scan")
 selected_leagues = [league for league in LEAGUE_KEYS.keys() if st.sidebar.checkbox(league, value=league in ["Premier League", "Champions League"])]
 
-tab1, tab2 = st.tabs(["🎯 Live Value Bets (Decay & League Adv)", "🔗 Correlated Accumulator Engine"])
+tab1, tab2 = st.tabs(["🎯 Live Value Bets", "🔗 Same-Day Parlay Recommendations"])
 
 if "scanned_bets" not in st.session_state:
     st.session_state.scanned_bets = []
@@ -223,19 +210,19 @@ if "scanned_bets" not in st.session_state:
 with tab1:
     st.subheader(f"SkyBet Market Scan — Profile: {risk_profile}")
     
-    if st.button("🔄 Execute Advanced Quant Scan", type="primary"):
+    if st.button("🔄 Execute Live Market Scan", type="primary"):
         if not api_key:
             st.error("Please enter your API Key in the sidebar.")
         elif not selected_leagues:
             st.warning("Please check at least one league.")
         else:
-            with st.status("Executing exponential decay form weighting and home advantage calibration...", expanded=True) as status:
+            with st.status("Querying SkyBet live markets and running quantitative ensemble...", expanded=True) as status:
                 ensemble_engine = InstitutionalEnsembleEngine()
                 bets = []
                 
                 for league_name in selected_leagues:
                     league_key = LEAGUE_KEYS[league_name]
-                    st.write(f"📡 Querying SkyBet odds & calibrating home advantage (+{LEAGUE_HOME_ADVANTAGE.get(league_name, 55.0)} Elo) for {league_name}...")
+                    st.write(f"📡 Processing {league_name}...")
                     
                     url = f"https://api.the-odds-api.com/v4/sports/{league_key}/odds/?apiKey={api_key}&regions=uk&bookmakers=skybet&markets=h2h"
                     
@@ -249,7 +236,10 @@ with tab1:
                         for match in data:
                             home_team = match.get("home_team")
                             away_team = match.get("away_team")
-                            kickoff = datetime.strptime(match.get("commence_time"), "%Y-%m-%dT%H:%M:%SZ").strftime("%b %d, %H:%M")
+                            
+                            dt_obj = datetime.strptime(match.get("commence_time"), "%Y-%m-%dT%H:%M:%SZ")
+                            match_date_str = dt_obj.strftime("%b %d, %Y") # Date grouping key (e.g. Aug 29, 2026)
+                            kickoff_display = dt_obj.strftime("%b %d, %H:%M")
                             
                             skybet_data = next((b for b in match.get("bookmakers", []) if b["key"] == "skybet"), None)
                             if skybet_data:
@@ -287,11 +277,11 @@ with tab1:
                                                          f"League Adv (+{LEAGUE_HOME_ADVANTAGE.get(league_name, 55.0)} Elo) incorporated.")
                                             
                                             bets.append({
-                                                "Kickoff": kickoff, "League": league_name, "Fixture": f"{home_team} vs {away_team}",
+                                                "Kickoff": kickoff_display, "League": league_name, "Fixture": f"{home_team} vs {away_team}",
                                                 "Market": "Match Winner", "Bookmaker": "SkyBet", "Selection": s_name, "Odds": odds,
                                                 "Model %": f"{t_prob*100:.1f}%", "Edge": f"+{edge*100:.1f}%" if edge > 0 else f"{edge*100:.1f}%",
                                                 "EV": f"+{ev*100:.1f}%" if ev > 0 else f"{ev*100:.1f}%", "Rec. Stake": f"£{stake:.2f} ({kelly*100:.1f}%)",
-                                                "AI Rationale": rationale, "_raw_prob": t_prob, "_raw_odds": odds
+                                                "AI Rationale": rationale, "_raw_prob": t_prob, "_raw_odds": odds, "_match_date": match_date_str
                                             })
                                             
                     except Exception as e:
@@ -301,48 +291,70 @@ with tab1:
                 st.session_state.scanned_bets = bets
                 
                 if bets:
-                    df_bets = pd.DataFrame(bets).sort_values(by='_raw_prob', ascending=False).drop(columns=['_raw_prob', '_raw_odds'])
+                    df_bets = pd.DataFrame(bets).sort_values(by='_raw_prob', ascending=False).drop(columns=['_raw_prob', '_raw_odds', '_match_date'])
                     st.dataframe(df_bets, use_container_width=True, hide_index=True)
                 else:
                     st.info("No matching fixtures found under current parameters.")
 
 with tab2:
-    st.subheader("🔗 Correlated Smart Accumulator Engine")
-    st.markdown("Constructs multi-leg accumulators with **systemic correlation penalties** applied to Kelly staking to protect bankroll against shared league variance.")
+    st.subheader("🔗 Same-Day Smart Accumulator Recommendations")
+    st.markdown("Constructs multi-leg parlays **strictly grouped by calendar matchday**, preventing cross-day scheduling friction.")
     
     if not st.session_state.scanned_bets:
-        st.info("Please run a live market scan in the first tab first.")
+        st.info("Please run a live market scan in the 'Live Value Bets' tab first.")
     else:
-        valid_bets = sorted(st.session_state.scanned_bets, key=lambda x: -x.get("_raw_prob", 0))
+        # Group valid bets strictly by same match calendar day
+        bets_by_date = defaultdict(list)
+        for b in st.session_state.scanned_bets:
+            bets_by_date[b["_match_date"]].append(b)
         
-        if len(valid_bets) >= 2:
-            parlay_sizes = [2, 3, 4]
-            for size in parlay_sizes:
-                if len(valid_bets) >= size:
-                    selected_legs = valid_bets[:size]
-                    combined_odds, penalized_prob, kelly, parlay_stake, penalty_factor = QuantEngine.calculate_correlated_parlay_stake(
-                        selected_legs, bankroll
-                    )
-                    implied_prob = 1.0 / combined_odds
-                    edge = penalized_prob - implied_prob
-                    ev = QuantEngine.calculate_ev(penalized_prob, combined_odds)
-                    
-                    with st.container(border=True):
-                        st.markdown(f"### ⚡ Correlated {size}-Fold Accumulator (Penalty Factor: {penalty_factor:.2f}x)")
-                        col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("Combined SkyBet Odds", f"{combined_odds:.2f}")
-                        col2.metric("Penalized Model Prob", f"{penalized_prob*100:.2f}%")
-                        col3.metric("Expected Value (EV)", f"{ev*100:.2f}%", delta=f"{edge*100:.2f}% Edge")
-                        col4.metric("Rec. Correlated Stake", f"£{parlay_stake:.2f} ({kelly*100:.1f}%)")
+        rendered_any_accumulator = False
+        
+        for match_date, day_bets in bets_by_date.items():
+            valid_day_bets = sorted(day_bets, key=lambda x: -x.get("_raw_prob", 0))
+            
+            # Remove intra-match duplicates (e.g. Home Win and Away Win from same fixture)
+            seen_fixtures = set()
+            unique_fixture_bets = []
+            for b in valid_day_bets:
+                if b["Fixture"] not in seen_fixtures:
+                    seen_fixtures.add(b["Fixture"])
+                    unique_fixture_bets.append(b)
+            
+            if len(unique_fixture_bets) >= 2:
+                rendered_any_accumulator = True
+                st.markdown(f"#### 📅 Matchday Parlays — {match_date}")
+                
+                parlay_sizes = [2, 3, 4]
+                for size in parlay_sizes:
+                    if len(unique_fixture_bets) >= size:
+                        selected_legs = unique_fixture_bets[:size]
+                        combined_odds, penalized_prob, kelly, parlay_stake, penalty_factor = QuantEngine.calculate_correlated_parlay_stake(
+                            selected_legs, bankroll
+                        )
+                        implied_prob = 1.0 / combined_odds
+                        edge = penalized_prob - implied_prob
+                        ev = QuantEngine.calculate_ev(penalized_prob, combined_odds)
                         
-                        st.markdown("**Accumulator Legs:**")
-                        leg_df = pd.DataFrame([{
-                            "Fixture": leg["Fixture"],
-                            "League": leg["League"],
-                            "Selection": leg["Selection"],
-                            "Odds": leg["Odds"],
-                            "Model Prob": leg["Model %"]
-                        } for leg in selected_legs])
-                        st.dataframe(leg_df, use_container_width=True, hide_index=True)
-        else:
-            st.warning("Not enough qualifying selections found to construct multi-leg accumulators.")
+                        with st.container(border=True):
+                            st.markdown(f"##### ⚡ Same-Day {size}-Fold Accumulator ({match_date}) — Penalty Factor: `{penalty_factor:.2f}x`")
+                            col1, col2, col3, col4 = st.columns(4)
+                            col1.metric("Combined SkyBet Odds", f"{combined_odds:.2f}")
+                            col2.metric("Penalized Joint Prob", f"{penalized_prob*100:.2f}%")
+                            col3.metric("Expected Value (EV)", f"{ev*100:.2f}%", delta=f"{edge*100:.2f}% Edge")
+                            col4.metric("Rec. Correlated Stake", f"£{parlay_stake:.2f} ({kelly*100:.1f}%)")
+                            
+                            st.markdown("**Accumulator Legs:**")
+                            leg_df = pd.DataFrame([{
+                                "Kickoff Time": leg["Kickoff"],
+                                "Fixture": leg["Fixture"],
+                                "League": leg["League"],
+                                "Selection": leg["Selection"],
+                                "Odds": leg["Odds"],
+                                "Model Prob": leg["Model %"]
+                            } for leg in selected_legs])
+                            st.dataframe(leg_df, use_container_width=True, hide_index=True)
+                st.markdown("---")
+                
+        if not rendered_any_accumulator:
+            st.warning("No single matchday had 2 or more distinct fixtures to form same-day accumulators. Try selecting more leagues in the sidebar.")
