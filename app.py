@@ -8,52 +8,185 @@ from collections import defaultdict
 from sklearn.linear_model import LogisticRegression
 
 st.set_page_config(
-    page_title="SkyBet Institutional Quant Terminal",
+    page_title="Apex Quant | Institutional SkyBet Terminal",
     layout="wide",
-    page_icon="📈"
+    page_icon="⚡",
+    initial_sidebar_state="expanded"
 )
 
-# Custom Institutional CSS Styling
+# =====================================================================
+# INSTITUTIONAL THEME & BADGE STYLING
+# =====================================================================
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
     
     html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        color: #E2E8F0;
     }
     
-    /* Sleek card metrics */
-    div[data-testid="stMetric"] {
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        padding: 14px 18px;
-        border-radius: 10px;
-        backdrop-filter: blur(8px);
-    }
-    
-    /* Form containers */
-    div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
-        background-color: rgba(22, 27, 34, 0.5);
+    /* Top Brand Hero */
+    .hero-container {
+        padding: 24px 28px;
+        background: radial-gradient(circle at top left, #1E293B 0%, #0F172A 100%);
         border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 14px;
+        border-radius: 16px;
+        margin-bottom: 24px;
+        box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
     }
-    
-    /* Header accent */
-    .terminal-title {
-        font-size: 1.8rem;
-        font-weight: 700;
-        background: linear-gradient(90deg, #60A5FA, #34D399);
+    .hero-title {
+        font-size: 2.1rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        background: linear-gradient(135deg, #38BDF8 0%, #34D399 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         margin-bottom: 4px;
+    }
+    .hero-subtitle {
+        color: #94A3B8;
+        font-size: 0.95rem;
+        font-weight: 400;
+    }
+
+    /* Metric Cards */
+    div[data-testid="stMetric"] {
+        background: #1E293B;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        padding: 16px 20px;
+        border-radius: 14px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    }
+    div[data-testid="stMetricLabel"] p {
+        color: #94A3B8 !important;
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    div[data-testid="stMetricValue"] div {
+        color: #F8FAFC !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-weight: 700 !important;
+    }
+
+    /* Match & League Badges */
+    .league-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+    }
+    .league-logo {
+        width: 26px;
+        height: 26px;
+        object-fit: contain;
+    }
+    .team-badge {
+        width: 22px;
+        height: 22px;
+        object-fit: contain;
+        vertical-align: middle;
+        margin-right: 6px;
+    }
+    .team-badge-lg {
+        width: 38px;
+        height: 38px;
+        object-fit: contain;
+    }
+    .match-header-box {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: rgba(30, 41, 59, 0.6);
+        padding: 12px 18px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        margin-bottom: 12px;
+    }
+
+    /* Badges & Pills */
+    .badge-edge {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10B981;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.82rem;
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .badge-odds {
+        background: rgba(56, 189, 248, 0.15);
+        color: #38BDF8;
+        border: 1px solid rgba(56, 189, 248, 0.3);
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.82rem;
+        font-family: 'JetBrains Mono', monospace;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 1. QUANTITATIVE & MODELING UPGRADES: DYNAMIC FORM, LEAGUE HOME ADV, INJURIES
+# 1. ASSET HELPER ENGINE (TEAM BADGES & LEAGUE LOGOS)
+# =====================================================================
+
+LEAGUE_LOGOS = {
+    "Premier League": "https://media.api-sports.io/football/leagues/39.png",
+    "Championship": "https://media.api-sports.io/football/leagues/40.png",
+    "Champions League": "https://media.api-sports.io/football/leagues/2.png",
+    "Europa League": "https://media.api-sports.io/football/leagues/3.png",
+    "La Liga": "https://media.api-sports.io/football/leagues/140.png",
+    "Bundesliga": "https://media.api-sports.io/football/leagues/78.png",
+    "Serie A": "https://media.api-sports.io/football/leagues/135.png",
+    "Ligue 1": "https://media.api-sports.io/football/leagues/61.png",
+    "Eredivisie": "https://media.api-sports.io/football/leagues/88.png",
+    "Primeira Liga": "https://media.api-sports.io/football/leagues/94.png",
+    "MLS": "https://media.api-sports.io/football/leagues/253.png"
+}
+
+# Verified direct CDN badges for major European clubs with reliable fallback
+TEAM_BADGES = {
+    "Arsenal": "https://media.api-sports.io/football/teams/42.png",
+    "Aston Villa": "https://media.api-sports.io/football/teams/66.png",
+    "Chelsea": "https://media.api-sports.io/football/teams/49.png",
+    "Liverpool": "https://media.api-sports.io/football/teams/40.png",
+    "Man City": "https://media.api-sports.io/football/teams/50.png",
+    "Manchester City": "https://media.api-sports.io/football/teams/50.png",
+    "Manchester United": "https://media.api-sports.io/football/teams/33.png",
+    "Newcastle": "https://media.api-sports.io/football/teams/34.png",
+    "Tottenham": "https://media.api-sports.io/football/teams/47.png",
+    "Real Madrid": "https://media.api-sports.io/football/teams/541.png",
+    "Barcelona": "https://media.api-sports.io/football/teams/529.png",
+    "Atletico Madrid": "https://media.api-sports.io/football/teams/530.png",
+    "Bayern Munich": "https://media.api-sports.io/football/teams/157.png",
+    "Borussia Dortmund": "https://media.api-sports.io/football/teams/165.png",
+    "Bayer Leverkusen": "https://media.api-sports.io/football/teams/168.png",
+    "PSG": "https://media.api-sports.io/football/teams/85.png",
+    "Paris Saint Germain": "https://media.api-sports.io/football/teams/85.png",
+    "Inter Milan": "https://media.api-sports.io/football/teams/505.png",
+    "Juventus": "https://media.api-sports.io/football/teams/496.png",
+    "AC Milan": "https://media.api-sports.io/football/teams/489.png",
+    "Napoli": "https://media.api-sports.io/football/teams/492.png",
+    "Atalanta": "https://media.api-sports.io/football/teams/499.png",
+}
+
+def get_team_badge_url(team_name: str) -> str:
+    for known_team, url in TEAM_BADGES.items():
+        if known_team.lower() in team_name.lower():
+            return url
+    # Clean avatar generator fallback for unlisted clubs
+    clean_name = team_name.replace(" ", "+")
+    return f"https://ui-avatars.com/api/?name={clean_name}&background=1E293B&color=38BDF8&size=64&bold=true"
+
+def get_league_logo_url(league_name: str) -> str:
+    return LEAGUE_LOGOS.get(league_name, "https://media.api-sports.io/football/leagues/39.png")
+
+# =====================================================================
+# 2. QUANTITATIVE & MACHINE LEARNING ENSEMBLE ENGINE
 # =====================================================================
 
 LEAGUE_HOME_ADVANTAGE = {
@@ -90,9 +223,7 @@ class ExponentialDecayFormEngine:
 class InjuryImpactEngine:
     @staticmethod
     def calculate_lineup_xg_multiplier(team_name: str, key_player_out: bool = False) -> float:
-        if key_player_out:
-            return 0.88
-        return 1.00
+        return 0.88 if key_player_out else 1.00
 
 class DixonColesPoissonModel:
     def predict_corrected_probs(self, home_xg: float, away_xg: float):
@@ -203,7 +334,7 @@ class QuantEngine:
         return combined_odds, penalized_joint_prob, kelly, base_bankroll * kelly, correlation_penalty
 
 # =====================================================================
-# 2. LEAGUE CONFIGURATION
+# 3. LEAGUE CONFIGURATION
 # =====================================================================
 LEAGUE_KEYS = {
     "Premier League": "soccer_epl",
@@ -220,52 +351,66 @@ LEAGUE_KEYS = {
 }
 
 # =====================================================================
-# 3. STREAMLIT UI & INTERACTION
+# 4. STREAMLIT UI & DASHBOARD
 # =====================================================================
-st.markdown('<div class="terminal-title">📈 SkyBet Institutional Quant Terminal</div>', unsafe_allow_html=True)
-st.caption("Quantitative edge detection running Exponential Decay Form weighting, League Advantage, and Same-Day Correlated Parlays.")
 
-st.sidebar.header("⚙️ Terminal Settings")
-api_key = st.sidebar.text_input("Enter 'The Odds API' Key", type="password")
+st.markdown("""
+<div class="hero-container">
+    <div class="hero-title">⚡ Apex Quant Terminal</div>
+    <div class="hero-subtitle">Institutional edge detection engine running Dixon-Coles Bivariate Poisson, Calibrated Logistic Classifiers, and Correlated Accumulators for SkyBet.</div>
+</div>
+""", unsafe_allow_html=True)
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("💰 Bankroll & Risk Controls")
-bankroll = st.sidebar.number_input("Total Bankroll (£)", min_value=10.0, value=1000.0, step=50.0)
-
-risk_profile = st.sidebar.selectbox(
-    "Select Target Bet Profile",
-    [
-        "All Odds (Favorites & Underdogs)",
-        "Short Odds Only (< 2.0) [High Safety]", 
-        "Value / Underdogs Only (>= 2.0)"
+# Sidebar Configuration
+with st.sidebar:
+    st.markdown("### 🎛️ Terminal Controls")
+    api_key = st.text_input("Odds API Key", type="password", help="Enter your live API key from the-odds-api.com")
+    
+    st.markdown("---")
+    st.markdown("### 💼 Portfolio Sizing")
+    bankroll = st.number_input("Total Bankroll (£)", min_value=10.0, value=1000.0, step=50.0)
+    
+    risk_profile = st.selectbox(
+        "Market Strategy",
+        [
+            "All Odds (Favorites & Value)",
+            "Short Odds Only (< 2.00)",
+            "Underdogs & Value Only (≥ 2.00)"
+        ]
+    )
+    
+    st.markdown("---")
+    st.markdown("### 🌍 Target Competitions")
+    selected_leagues = [
+        league for league in LEAGUE_KEYS.keys()
+        if st.checkbox(league, value=league in ["Premier League", "Champions League", "La Liga"])
     ]
-)
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Select Leagues to Scan")
-selected_leagues = [league for league in LEAGUE_KEYS.keys() if st.sidebar.checkbox(league, value=league in ["Premier League", "Champions League"])]
-
-tab1, tab2 = st.tabs(["🎯 Live Value Bets", "🔗 Same-Day Parlay Recommendations"])
+tab1, tab2 = st.tabs(["🎯 Live Market Edge Matrix", "🔗 Correlated Same-Day Parlays"])
 
 if "scanned_bets" not in st.session_state:
     st.session_state.scanned_bets = []
 
 with tab1:
-    st.subheader(f"SkyBet Market Scan — Profile: {risk_profile}")
-    
-    if st.button("🔄 Execute Live Market Scan", type="primary"):
+    col_ctrl1, col_ctrl2 = st.columns([3, 1])
+    with col_ctrl1:
+        st.subheader("Live Market Odds vs True Consensus Probability")
+    with col_ctrl2:
+        scan_triggered = st.button("⚡ Run Real-Time Scan", type="primary", use_container_width=True)
+
+    if scan_triggered:
         if not api_key:
-            st.error("Please enter your API Key in the sidebar.")
+            st.error("Authentication required: Please enter your Odds API key in the sidebar.")
         elif not selected_leagues:
-            st.warning("Please check at least one league.")
+            st.warning("Please select at least one league from the sidebar to scan.")
         else:
-            with st.status("Querying SkyBet live markets and running quantitative ensemble...", expanded=True) as status:
+            with st.status("Executing Dixon-Coles & Logistic Ensembles across selected leagues...", expanded=True) as status:
                 ensemble_engine = InstitutionalEnsembleEngine()
                 bets = []
                 
                 for league_name in selected_leagues:
                     league_key = LEAGUE_KEYS[league_name]
-                    st.write(f"📡 Processing {league_name}...")
+                    st.write(f"📡 Querying SkyBet & solving bivariate distributions for **{league_name}**...")
                     
                     url = f"https://api.the-odds-api.com/v4/sports/{league_key}/odds/?apiKey={api_key}&regions=uk&bookmakers=skybet&markets=h2h"
                     
@@ -294,19 +439,26 @@ with tab1:
                                         home_team, away_team, league_name
                                     )
                                     
+                                    home_badge = get_team_badge_url(home_team)
+                                    away_badge = get_team_badge_url(away_team)
+                                    league_logo = get_league_logo_url(league_name)
+                                    
                                     for outcome in h2h_market.get("outcomes", []):
                                         s_name = outcome["name"]
                                         odds = outcome["price"]
                                         
                                         if s_name == home_team:
                                             t_prob = h_prob
+                                            sel_badge = home_badge
                                         elif s_name == away_team:
                                             t_prob = a_prob
+                                            sel_badge = away_badge
                                         else:
                                             t_prob = d_prob
+                                            sel_badge = "https://ui-avatars.com/api/?name=D&background=1E293B&color=94A3B8&size=64&bold=true"
                                         
-                                        if risk_profile == "Short Odds Only (< 2.0) [High Safety]" and odds >= 2.0: continue
-                                        if risk_profile == "Value / Underdogs Only (>= 2.0)" and odds < 2.0: continue
+                                        if risk_profile == "Short Odds Only (< 2.00)" and odds >= 2.0: continue
+                                        if risk_profile == "Underdogs & Value Only (≥ 2.00)" and odds < 2.0: continue
                                         
                                         edge = t_prob - (1 / odds)
                                         if edge > -0.06:
@@ -314,44 +466,124 @@ with tab1:
                                             kelly = QuantEngine.calculate_kelly(max(t_prob, 1/odds + 0.01), odds)
                                             stake = bankroll * kelly
                                             
-                                            implied_p = 1.0 / odds
-                                            rationale = (f"[Decay & Adv Model] True Win Prob: {t_prob*100:.1f}% vs SkyBet Implied: {implied_p*100:.1f}% | "
-                                                         f"Edge: +{edge*100:.1f}% | Decay Form xG: {h_xg:.2f} vs {a_xg:.2f}. "
-                                                         f"League Adv (+{LEAGUE_HOME_ADVANTAGE.get(league_name, 55.0)} Elo) incorporated.")
-                                            
                                             bets.append({
-                                                "Kickoff": kickoff_display, "League": league_name, "Fixture": f"{home_team} vs {away_team}",
-                                                "Market": "Match Winner", "Bookmaker": "SkyBet", "Selection": s_name, "Odds": odds,
-                                                "Model %": f"{t_prob*100:.1f}%", "Edge": f"+{edge*100:.1f}%" if edge > 0 else f"{edge*100:.1f}%",
-                                                "EV": f"+{ev*100:.1f}%" if ev > 0 else f"{ev*100:.1f}%", "Rec. Stake": f"£{stake:.2f} ({kelly*100:.1f}%)",
-                                                "AI Rationale": rationale, "_raw_prob": t_prob, "_raw_odds": odds, "_match_date": match_date_str
+                                                "Logo": league_logo,
+                                                "League": league_name,
+                                                "Kickoff": kickoff_display,
+                                                "Home": home_team,
+                                                "Away": away_team,
+                                                "Home Badge": home_badge,
+                                                "Away Badge": away_badge,
+                                                "Selection": s_name,
+                                                "Sel Badge": sel_badge,
+                                                "SkyBet Odds": odds,
+                                                "True Fair Odds": round(1 / t_prob, 2),
+                                                "Model Win %": f"{t_prob*100:.1f}%",
+                                                "Implied %": f"{(1/odds)*100:.1f}%",
+                                                "Edge": f"+{edge*100:.1f}%" if edge > 0 else f"{edge*100:.1f}%",
+                                                "EV": f"+{ev*100:.1f}%" if ev > 0 else f"{ev*100:.1f}%",
+                                                "Kelly Stake": f"£{stake:.2f}",
+                                                "Home xG": h_xg,
+                                                "Away xG": a_xg,
+                                                "_raw_prob": t_prob,
+                                                "_raw_odds": odds,
+                                                "_raw_edge": edge,
+                                                "_raw_ev": ev,
+                                                "_match_date": match_date_str
                                             })
                                             
                     except Exception as e:
                         st.error(f"Error scanning {league_name}: {e}")
                 
-                status.update(label=f"✅ Scan Complete! Found {len(bets)} verified opportunities.", state="complete", expanded=False)
+                status.update(label=f"✅ Scan Complete — {len(bets)} verified opportunities identified.", state="complete", expanded=False)
                 st.session_state.scanned_bets = bets
+
+    if st.session_state.scanned_bets:
+        valid_bets = st.session_state.scanned_bets
+        
+        # Top KPI Executive Row
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        top_edge = max(b["_raw_edge"] for b in valid_bets)
+        max_prob = max(b["_raw_prob"] for b in valid_bets)
+        best_ev = max(b["_raw_ev"] for b in valid_bets)
+        
+        kpi1.metric("Opportunities Found", f"{len(valid_bets)} Bets")
+        kpi2.metric("Top Edge Captured", f"+{top_edge*100:.1f}%", delta="Positive Expected Edge")
+        kpi3.metric("Highest Model Win %", f"{max_prob*100:.1f}%")
+        kpi4.metric("Top Single EV", f"+{best_ev*100:.1f}%")
+        
+        st.markdown("### 📊 Verified Value Opportunity Table")
+        
+        df_display = pd.DataFrame(valid_bets).sort_values(by='_raw_prob', ascending=False)
+        clean_table = df_display[[
+            "Logo", "League", "Kickoff", "Home Badge", "Home", "Away Badge", "Away", 
+            "Sel Badge", "Selection", "SkyBet Odds", "True Fair Odds", "Model Win %", "Implied %", "Edge", "EV", "Kelly Stake"
+        ]]
+        
+        st.dataframe(
+            clean_table,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Logo": st.column_config.ImageColumn("Comp", width="small"),
+                "Home Badge": st.column_config.ImageColumn("H", width="small"),
+                "Away Badge": st.column_config.ImageColumn("A", width="small"),
+                "Sel Badge": st.column_config.ImageColumn("Pick", width="small"),
+                "SkyBet Odds": st.column_config.NumberColumn(format="%.2f"),
+                "True Fair Odds": st.column_config.NumberColumn(format="%.2f"),
+                "Kelly Stake": st.column_config.TextColumn(help="1/4 Fractional Kelly bankroll stake recommendation")
+            }
+        )
+        
+        st.markdown("---")
+        st.markdown("### 🔍 Fixture Telemetry & Machine Learning Breakdown")
+        
+        # Interactive Match Cards with Badges
+        for bet in valid_bets[:6]:
+            with st.expander(f"📌 {bet['Home']} vs {bet['Away']} — Pick: {bet['Selection']} @ {bet['SkyBet Odds']} (EV: {bet['EV']})"):
+                st.markdown(f"""
+                <div class="match-header-box">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <img src="{bet['Home Badge']}" class="team-badge-lg">
+                        <span style="font-size: 1.1rem; font-weight: 700;">{bet['Home']}</span>
+                        <span style="color: #64748B; font-weight: 600; margin: 0 4px;">vs</span>
+                        <span style="font-size: 1.1rem; font-weight: 700;">{bet['Away']}</span>
+                        <img src="{bet['Away Badge']}" class="team-badge-lg">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <img src="{bet['Logo']}" class="league-logo">
+                        <span style="color: #94A3B8; font-weight: 500; font-size: 0.9rem;">{bet['League']} • {bet['Kickoff']}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
                 
-                if bets:
-                    df_bets = pd.DataFrame(bets).sort_values(by='_raw_prob', ascending=False).drop(columns=['_raw_prob', '_raw_odds', '_match_date'], errors='ignore')
-                    st.dataframe(df_bets, use_container_width=True, hide_index=True)
-                else:
-                    st.info("No matching fixtures found under current parameters.")
+                c1, c2, c3 = st.columns(3)
+                c1.markdown(f"**Selection:** <img src='{bet['Sel Badge']}' class='team-badge'> **{bet['Selection']}**", unsafe_allow_html=True)
+                c1.markdown(f"**SkyBet Price:** `{bet['SkyBet Odds']}`")
+                
+                c2.markdown(f"**True Fair Odds:** `1 @ {bet['True Fair Odds']}`")
+                c2.markdown(f"**Calculated Edge:** <span class='badge-edge'>{bet['Edge']}</span>", unsafe_allow_html=True)
+                
+                c3.markdown(f"**Home xG (Decayed):** `{bet['Home xG']:.2f}`")
+                c3.markdown(f"**Away xG (Decayed):** `{bet['Away xG']:.2f}`")
+                
+                st.progress(float(bet["_raw_prob"]), text=f"Model Consensus Win Probability: {bet['Model Win %']} (SkyBet Implied: {bet['Implied %']})")
+    else:
+        st.info("No active market scan loaded. Click **'Run Real-Time Scan'** above to fetch live SkyBet odds.")
 
 with tab2:
-    st.subheader("🔗 Same-Day Smart Accumulator Recommendations")
-    st.markdown("Constructs multi-leg parlays **strictly grouped by calendar matchday**, preventing cross-day scheduling friction.")
+    st.subheader("🔗 Correlated Same-Day Parlays")
+    st.caption("Auto-grouped solely by calendar matchday, featuring team crests and intra-league variance penalties.")
     
     if not st.session_state.scanned_bets:
-        st.info("Please run a live market scan in the 'Live Value Bets' tab first.")
+        st.info("Run a scan in the **'Live Market Edge Matrix'** tab first to generate parlay recommendations.")
     else:
         bets_by_date = defaultdict(list)
         for b in st.session_state.scanned_bets:
             date_key = b.get("_match_date") or (b.get("Kickoff", "Matchday").split(",")[0] if "," in b.get("Kickoff", "") else "Today")
             bets_by_date[date_key].append(b)
-        
-        rendered_any_accumulator = False
+            
+        rendered_parlays = False
         
         for match_date, day_bets in bets_by_date.items():
             valid_day_bets = sorted(day_bets, key=lambda x: -x.get("_raw_prob", 0))
@@ -359,45 +591,46 @@ with tab2:
             seen_fixtures = set()
             unique_fixture_bets = []
             for b in valid_day_bets:
-                fixture_name = b.get("Fixture", "")
+                fixture_name = f"{b.get('Home', '')} vs {b.get('Away', '')}"
                 if fixture_name not in seen_fixtures and "_raw_odds" in b and "_raw_prob" in b:
                     seen_fixtures.add(fixture_name)
                     unique_fixture_bets.append(b)
             
             if len(unique_fixture_bets) >= 2:
-                rendered_any_accumulator = True
-                st.markdown(f"#### 📅 Matchday Parlays — {match_date}")
+                rendered_parlays = True
+                st.markdown(f"### 📅 Matchday Schedule: **{match_date}**")
                 
                 parlay_sizes = [2, 3, 4]
-                for size in parlay_sizes:
-                    if len(unique_fixture_bets) >= size:
-                        selected_legs = unique_fixture_bets[:size]
-                        combined_odds, penalized_prob, kelly, parlay_stake, penalty_factor = QuantEngine.calculate_correlated_parlay_stake(
-                            selected_legs, bankroll
-                        )
-                        implied_prob = 1.0 / combined_odds
-                        edge = penalized_prob - implied_prob
-                        ev = QuantEngine.calculate_ev(penalized_prob, combined_odds)
-                        
+                p_cols = st.columns(len([s for s in parlay_sizes if len(unique_fixture_bets) >= s]))
+                
+                for idx, size in enumerate([s for s in parlay_sizes if len(unique_fixture_bets) >= s]):
+                    selected_legs = unique_fixture_bets[:size]
+                    combined_odds, penalized_prob, kelly, parlay_stake, penalty_factor = QuantEngine.calculate_correlated_parlay_stake(
+                        selected_legs, bankroll
+                    )
+                    implied_prob = 1.0 / combined_odds
+                    edge = penalized_prob - implied_prob
+                    ev = QuantEngine.calculate_ev(penalized_prob, combined_odds)
+                    
+                    with p_cols[idx]:
                         with st.container(border=True):
-                            st.markdown(f"##### ⚡ Same-Day {size}-Fold Accumulator ({match_date}) — Penalty Factor: `{penalty_factor:.2f}x`")
-                            col1, col2, col3, col4 = st.columns(4)
-                            col1.metric("Combined SkyBet Odds", f"{combined_odds:.2f}")
-                            col2.metric("Penalized Joint Prob", f"{penalized_prob*100:.2f}%")
-                            col3.metric("Expected Value (EV)", f"{ev*100:.2f}%", delta=f"{edge*100:.2f}% Edge")
-                            col4.metric("Rec. Correlated Stake", f"£{parlay_stake:.2f} ({kelly*100:.1f}%)")
+                            st.markdown(f"#### ⚡ {size}-Fold Parlay")
+                            st.markdown(f"**Odds:** <span class='badge-odds'>{combined_odds:.2f}</span>", unsafe_allow_html=True)
+                            st.markdown(f"**Penalized Joint Prob:** `{penalized_prob*100:.1f}%`")
+                            st.markdown(f"**Expected Value:** <span class='badge-edge'>+{ev*100:.1f}%</span>", unsafe_allow_html=True)
+                            st.markdown(f"**Recommended Stake:** `{parlay_stake:.2f}` ({kelly*100:.1f}%)")
+                            st.caption(f"Intra-league variance penalty: `{penalty_factor:.2f}x`")
                             
-                            st.markdown("**Accumulator Legs:**")
-                            leg_df = pd.DataFrame([{
-                                "Kickoff Time": leg.get("Kickoff", "-"),
-                                "Fixture": leg.get("Fixture", "-"),
-                                "League": leg.get("League", "-"),
-                                "Selection": leg.get("Selection", "-"),
-                                "Odds": leg.get("Odds", "-"),
-                                "Model Prob": leg.get("Model %", "-")
-                            } for leg in selected_legs])
-                            st.dataframe(leg_df, use_container_width=True, hide_index=True)
+                            st.markdown("---")
+                            st.markdown("**Accumulator Selections:**")
+                            for leg in selected_legs:
+                                st.markdown(
+                                    f"• <img src='{leg['Logo']}' class='league-logo' style='width:16px; height:16px;'> "
+                                    f"<img src='{leg['Sel Badge']}' class='team-badge'> **{leg['Selection']}** ({leg['SkyBet Odds']})",
+                                    unsafe_allow_html=True
+                                )
+                                
                 st.markdown("---")
                 
-        if not rendered_any_accumulator:
-            st.warning("No single matchday had 2 or more distinct fixtures to form same-day accumulators. Try selecting more leagues in the sidebar.")
+        if not rendered_parlays:
+            st.warning("No single matchday had 2 or more distinct fixtures to form same-day accumulators. Try selecting more leagues.")
